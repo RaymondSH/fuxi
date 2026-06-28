@@ -13,3 +13,6 @@ python-dotenv>=1.0.0     # 读取 .env
 sse-starlette>=2.1.0     # SSE 流式问答（EventSourceResponse，POST /qa/stream）
 boto3>=1.34.0            # 原始文件落 R2/S3（S3 兼容；local 模式不需要，延迟导入）
 langchain-text-splitters>=0.3.0  # 文档分块（RecursiveCharacterTextSplitter，纯文本切分）
+pyjwt>=2.9.0             # 登录签发/解码 JWT（HS256）
+bcrypt>=4.1.0            # 密码哈希（直接用 bcrypt，弃 passlib：后者已停更且与 bcrypt>=4.1 不兼容）
+email-validator>=2.1.0   # pydantic EmailStr 校验（登录/建号邮箱）

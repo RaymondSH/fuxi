@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from db import pool
+from services.auth import require_admin
 from workers import compile_worker
 
 router = APIRouter(prefix="/wiki", tags=["wiki"])
@@ -51,7 +52,8 @@ class CompileResponse(BaseModel):
     status: str  # queued
 
 
-@router.post("/compile", response_model=CompileResponse, status_code=202)
+@router.post("/compile", response_model=CompileResponse, status_code=202,
+             dependencies=[Depends(require_admin)])
 def compile(req: CompileRequest, background: BackgroundTasks) -> CompileResponse:
     """编译主题页：建占位行 + 入队 compile job，后台跑 LLM 综合。
 

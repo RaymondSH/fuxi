@@ -12,13 +12,14 @@ import json
 import re
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from db import pool
 from routers import search as search_mod
-from services import llm
+from services import llm, quota, usage
+from services.auth import CurrentUser, get_current_user
 
 router = APIRouter(tags=["qa"])
 
@@ -49,35 +50,38 @@ class QaResponse(BaseModel):
 
 
 @router.post("/qa", response_model=QaResponse)
-def qa(req: QaRequest) -> QaResponse:
+def qa(req: QaRequest, user: CurrentUser = Depends(get_current_user)) -> QaResponse:
     question = req.question.strip()
     if not question:
         return QaResponse(answer="请输入问题。", sources=[], generated=False)
 
-    rows = _retrieve(question)
-    sources = [
-        Source(id=r[0], title=r[2], type=_TYPE_MAP.get(r[1], "link")) for r in rows
-    ]
+    quota.check_quota(user)  # 超当日额度直接 429
 
-    context = _build_context(rows)
-    try:
-        text = llm.answer(
-            question, context, [t.model_dump() for t in req.history]
-        )
-        generated = True
-    except Exception:  # noqa: BLE001 — 缺密钥/调用失败时降级，不报错
-        generated = False
-        if sources:
-            text = "（未配置 API_KEY，暂不能生成回答。以下是检索到的相关来源，供参考。）"
-        else:
-            text = "（未配置 API_KEY，且没有检索到相关来源。）"
+    with usage.collect() as u:  # 检索（embedding）+ 生成的 token 都计入
+        rows = _retrieve(question)
+        sources = [
+            Source(id=r[0], title=r[2], type=_TYPE_MAP.get(r[1], "link")) for r in rows
+        ]
+        context = _build_context(rows)
+        try:
+            text = llm.answer(
+                question, context, [t.model_dump() for t in req.history]
+            )
+            generated = True
+        except Exception:  # noqa: BLE001 — 缺密钥/调用失败时降级，不报错
+            generated = False
+            if sources:
+                text = "（未配置 API_KEY，暂不能生成回答。以下是检索到的相关来源，供参考。）"
+            else:
+                text = "（未配置 API_KEY，且没有检索到相关来源。）"
 
-    _save_history(question, text, [s.id for s in sources])
+    quota.record_usage(user.id, "qa", u)
+    _save_history(question, text, [s.id for s in sources], user.id)
     return QaResponse(answer=text, sources=sources, generated=generated)
 
 
 @router.post("/qa/stream")
-async def qa_stream(req: QaRequest):
+async def qa_stream(req: QaRequest, user: CurrentUser = Depends(get_current_user)):
     """流式问答（SSE）。
 
     事件流：
@@ -87,39 +91,43 @@ async def qa_stream(req: QaRequest):
     缺 API_KEY 时只发 sources + done(generated=false)，与非流式降级行为一致。
     """
     question = req.question.strip()
+    if question:
+        quota.check_quota(user)  # 超额在开流前抛 429，前端按普通错误处理
 
     async def event_gen():
         if not question:
             yield {"event": "done", "data": '{"generated": false, "error": "空问题"}'}
             return
 
-        rows = _retrieve(question)
-        sources = [
-            {"id": str(r[0]), "title": r[2], "type": _TYPE_MAP.get(r[1], "link")}
-            for r in rows
-        ]
-        yield {"event": "sources", "data": json.dumps(sources, ensure_ascii=False)}
+        with usage.collect() as u:
+            rows = _retrieve(question)
+            sources = [
+                {"id": str(r[0]), "title": r[2], "type": _TYPE_MAP.get(r[1], "link")}
+                for r in rows
+            ]
+            yield {"event": "sources", "data": json.dumps(sources, ensure_ascii=False)}
 
-        context = _build_context(rows)
-        full_answer: list[str] = []
-        generated = True
-        try:
-            async for chunk in llm.answer_stream(
-                question, context, [t.model_dump() for t in req.history]
-            ):
-                full_answer.append(chunk)
-                yield {"event": "token", "data": json.dumps({"text": chunk}, ensure_ascii=False)}
-        except Exception:  # noqa: BLE001 — 缺密钥/调用失败时降级，不报错
-            generated = False
-            if sources:
-                full_answer.append(
-                    "（未配置 API_KEY，暂不能生成回答。以下是检索到的相关来源，供参考。）"
-                )
-            else:
-                full_answer.append("（未配置 API_KEY，且没有检索到相关来源。）")
+            context = _build_context(rows)
+            full_answer: list[str] = []
+            generated = True
+            try:
+                async for chunk in llm.answer_stream(
+                    question, context, [t.model_dump() for t in req.history]
+                ):
+                    full_answer.append(chunk)
+                    yield {"event": "token", "data": json.dumps({"text": chunk}, ensure_ascii=False)}
+            except Exception:  # noqa: BLE001 — 缺密钥/调用失败时降级，不报错
+                generated = False
+                if sources:
+                    full_answer.append(
+                        "（未配置 API_KEY，暂不能生成回答。以下是检索到的相关来源，供参考。）"
+                    )
+                else:
+                    full_answer.append("（未配置 API_KEY，且没有检索到相关来源。）")
 
+        quota.record_usage(user.id, "qa_stream", u)
         answer_text = "".join(full_answer)
-        _save_history(question, answer_text, [uuid.UUID(s["id"]) for s in sources])
+        _save_history(question, answer_text, [uuid.UUID(s["id"]) for s in sources], user.id)
         yield {
             "event": "done",
             "data": json.dumps({"generated": generated}, ensure_ascii=False),
@@ -129,16 +137,25 @@ async def qa_stream(req: QaRequest):
 
 
 @router.get("/qa/history")
-def qa_history() -> dict:
+def qa_history(
+    scope: str = "mine",
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    # 默认只看自己；管理员传 scope=all 看全部
+    all_users = user.is_admin and scope == "all"
+    where = "" if all_users else "WHERE user_id = %s"
+    params: list = [] if all_users else [user.id]
     with pool.connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT id, question, answer, array_length(source_ids, 1), created_at,
                    to_char(created_at, 'MM-DD HH24:MI') AS when_label
             FROM qa_history
+            {where}
             ORDER BY created_at DESC
             LIMIT 30
-            """
+            """,
+            params,
         ).fetchall()
     return {
         "items": [
@@ -212,9 +229,9 @@ def _build_context(rows: list[tuple]) -> str:
     return "\n\n".join(blocks)
 
 
-def _save_history(question: str, answer: str, source_ids: list[uuid.UUID]) -> None:
+def _save_history(question: str, answer: str, source_ids: list[uuid.UUID], user_id) -> None:
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO qa_history (question, answer, source_ids) VALUES (%s, %s, %s)",
-            (question, answer, source_ids),
+            "INSERT INTO qa_history (question, answer, source_ids, user_id) VALUES (%s, %s, %s, %s)",
+            (question, answer, source_ids, user_id),
         )

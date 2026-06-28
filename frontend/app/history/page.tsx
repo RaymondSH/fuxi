@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 
 interface SearchHistoryItem {
   id: string;
@@ -21,23 +22,40 @@ interface QaHistoryItem {
 }
 
 export default function HistoryPage() {
+  const { user } = useAuth();
   const [searches, setSearches] = useState<SearchHistoryItem[]>([]);
   const [qas, setQas] = useState<QaHistoryItem[]>([]);
+  const [allUsers, setAllUsers] = useState(false); // 管理员看全部
+
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
-    apiGet<{ items: SearchHistoryItem[] }>("/search/history")
+    const scope = isAdmin && allUsers ? "?scope=all" : "";
+    apiGet<{ items: SearchHistoryItem[] }>(`/search/history${scope}`)
       .then((d) => setSearches(d.items))
       .catch(() => {});
-    apiGet<{ items: QaHistoryItem[] }>("/qa/history")
+    apiGet<{ items: QaHistoryItem[] }>(`/qa/history${scope}`)
       .then((d) => setQas(d.items))
       .catch(() => {});
-  }, []);
+  }, [isAdmin, allUsers]);
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-10">
-      <header className="mb-6">
-        <h1 className="font-serif text-2xl font-semibold text-ink">历史</h1>
-        <p className="mt-1 text-sm text-muted">检索与问答记录。</p>
+      <header className="mb-6 flex items-end justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-2xl font-semibold text-ink">历史</h1>
+          <p className="mt-1 text-sm text-muted">
+            {isAdmin && allUsers ? "全部用户的检索与问答记录。" : "你的检索与问答记录。"}
+          </p>
+        </div>
+        {isAdmin && (
+          <button
+            onClick={() => setAllUsers((v) => !v)}
+            className="shrink-0 rounded-lg border border-line bg-white px-3 py-1.5 text-xs text-muted transition-colors hover:border-brand hover:text-accent"
+          >
+            {allUsers ? "只看自己" : "看全部用户"}
+          </button>
+        )}
       </header>
 
       {/* 问答历史 */}

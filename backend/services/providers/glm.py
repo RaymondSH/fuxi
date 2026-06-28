@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from openai import AsyncOpenAI, OpenAI
 
 from config import settings
+from services import usage
 from services.providers.base import (
     INGEST_SYSTEM,
     QA_SYSTEM,
@@ -79,6 +80,7 @@ class GLMProvider(LLMProvider):
                 "reasoning_effort": "max",
             },
         )
+        usage.record_call(getattr(resp, "usage", None))
         text = resp.choices[0].message.content or ""
         return IngestResult.model_validate_json(text)
 
@@ -100,6 +102,7 @@ class GLMProvider(LLMProvider):
             messages=messages,
             extra_body={"thinking": {"type": "enabled"}},
         )
+        usage.record_call(getattr(resp, "usage", None))
         return resp.choices[0].message.content or ""
 
     async def answer_stream(
@@ -122,9 +125,13 @@ class GLMProvider(LLMProvider):
             temperature=1.0,
             messages=messages,
             stream=True,
+            stream_options={"include_usage": True},  # 末尾 chunk 带 usage，用于配额计费
             extra_body={"thinking": {"type": "enabled"}},
         )
         async for chunk in stream:
+            # 含 usage 的统计 chunk（通常是最后一个）choices 为空
+            if getattr(chunk, "usage", None):
+                usage.record_call(chunk.usage)
             delta = chunk.choices[0].delta.content if chunk.choices else None
             if delta:
                 yield delta
@@ -149,6 +156,7 @@ class GLMProvider(LLMProvider):
                 }
             ],
         )
+        usage.record_call(getattr(resp, "usage", None))
         return resp.choices[0].message.content or ""
 
     def compile_wiki(self, sources: list[dict], topic: str) -> WikiCompileResult:
@@ -173,6 +181,7 @@ class GLMProvider(LLMProvider):
                 "reasoning_effort": "max",
             },
         )
+        usage.record_call(getattr(resp, "usage", None))
         text = resp.choices[0].message.content or ""
         return WikiCompileResult.model_validate_json(text)
 
@@ -193,4 +202,5 @@ class GLMEmbedder(EmbeddingProvider):
             input=text[:8000],
             dimensions=settings.embed_dim,
         )
+        usage.record_call(getattr(resp, "usage", None))
         return resp.data[0].embedding

@@ -13,11 +13,12 @@ import html
 import time
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from db import pool
-from services import embedder, es
+from services import embedder, es, quota, usage
+from services.auth import CurrentUser, get_current_user
 
 router = APIRouter(tags=["search"])
 
@@ -58,13 +59,28 @@ class SearchResponse(BaseModel):
 # ---------- 接口 ----------
 
 @router.post("/search", response_model=SearchResponse)
-def search(req: SearchRequest) -> SearchResponse:
+def search(req: SearchRequest, user: CurrentUser = Depends(get_current_user)) -> SearchResponse:
     t0 = time.perf_counter()
     q = req.q.strip()
-    if not q:
-        return SearchResponse(query=q, mode=req.mode, took_ms=0, total=0, results=[])
 
-    with pool.connection() as conn:
+    # 无查询词：有标签则做「按标签浏览」（不调 LLM、不计费），无标签返回空
+    if not q:
+        if not req.tags:
+            return SearchResponse(query=q, mode=req.mode, took_ms=0, total=0, results=[])
+        with pool.connection() as conn:
+            ordered = _tag_search(conn, req.tags, req.time_filter)
+        total = len(ordered)
+        page_rows = ordered[(req.page - 1) * req.size : (req.page - 1) * req.size + req.size]
+        results = [_to_result(r, q) for r in page_rows]
+        _save_history(q, "tag", req.tags, req.time_filter, [r.id for r in results], total, user.id)
+        took = int((time.perf_counter() - t0) * 1000)
+        return SearchResponse(query=q, mode="tag", took_ms=took, total=total, results=results)
+
+    # 仅语义/混合会调用 embedding（计费），先查配额；纯关键词不计费、不检查
+    if req.mode in ("hybrid", "semantic"):
+        quota.check_quota(user)
+
+    with usage.collect() as u, pool.connection() as conn:
         kw_rows = _keyword_search(conn, q, req.tags, req.time_filter)
         vec = _try_embed(q) if req.mode in ("hybrid", "semantic") else None
         sem_rows = (
@@ -92,7 +108,8 @@ def search(req: SearchRequest) -> SearchResponse:
     page_rows = ordered[start : start + req.size]
     results = [_to_result(r, q) for r in page_rows]
 
-    _save_history(q, effective_mode, req.tags, req.time_filter, [r.id for r in results], total)
+    quota.record_usage(user.id, "search_semantic", u)  # 纯关键词无 usage，内部不记
+    _save_history(q, effective_mode, req.tags, req.time_filter, [r.id for r in results], total, user.id)
 
     took = int((time.perf_counter() - t0) * 1000)
     return SearchResponse(query=q, mode=effective_mode, took_ms=took, total=total, results=results)
@@ -116,16 +133,24 @@ def list_tags() -> dict:
 
 
 @router.get("/search/history")
-def search_history() -> dict:
+def search_history(
+    scope: str = "mine",
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    all_users = user.is_admin and scope == "all"
+    where = "" if all_users else "WHERE user_id = %s"
+    params: list = [] if all_users else [user.id]
     with pool.connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT id, query, mode, result_count, created_at,
                    to_char(created_at, 'MM-DD HH24:MI') AS when_label
             FROM search_history
+            {where}
             ORDER BY created_at DESC
             LIMIT 30
-            """
+            """,
+            params,
         ).fetchall()
     return {
         "items": [
@@ -161,6 +186,19 @@ def _filters(tags: list[str], time_filter: str) -> tuple[str, list]:
         clauses.append("created_at >= NOW() - %s::interval")
         params.append(interval)
     return ("".join(f" AND {c}" for c in clauses), params)
+
+
+def _tag_search(conn, tags, time_filter) -> list[tuple]:
+    """按标签浏览：无查询词时用，纯标签（+时间）过滤，按时间倒序。不打分、不调 LLM。"""
+    extra, extra_params = _filters(tags, time_filter)  # extra 含 tags && + 时间过滤
+    sql = f"""
+        SELECT {_COLS}
+        FROM notes
+        WHERE ingest_status = 'done'{extra}
+        ORDER BY created_at DESC
+        LIMIT 100
+    """
+    return conn.execute(sql, extra_params).fetchall()
 
 
 def _keyword_search(conn, q: str, tags, time_filter) -> list[tuple]:
@@ -320,13 +358,13 @@ def _snippet(text: str, q: str, window: int = 60) -> str:
     return f"{prefix}{before}<em>{match}</em>{after}{suffix}"
 
 
-def _save_history(q, mode, tags, time_filter, result_ids, total) -> None:
+def _save_history(q, mode, tags, time_filter, result_ids, total, user_id) -> None:
     with pool.connection() as conn:
         conn.execute(
             """
-            INSERT INTO search_history (query, mode, time_filter, tags, result_ids, result_count)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO search_history (query, mode, time_filter, tags, result_ids, result_count, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (q, mode if mode in ("hybrid", "keyword", "semantic", "tag") else "keyword",
-             time_filter, tags, result_ids, total),
+             time_filter, tags, result_ids, total, user_id),
         )

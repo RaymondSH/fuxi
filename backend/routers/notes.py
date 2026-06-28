@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from db import pool
 from services import es
+from services.auth import require_admin
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -89,7 +90,7 @@ def get_note(note_id: uuid.UUID) -> NoteDetail:
     )
 
 
-@router.delete("/{note_id}", status_code=204)
+@router.delete("/{note_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_note(note_id: uuid.UUID) -> None:
     with pool.connection() as conn:
         cur = conn.execute("DELETE FROM notes WHERE id = %s", (note_id,))

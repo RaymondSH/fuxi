@@ -7,3 +7,7 @@
 \i sql/04_wiki.sql
 \i sql/05_history.sql
 \i sql/06_jobs.sql
+\i sql/07_chunks.sql
+\i sql/08_auth.sql
+\i sql/09_history_user.sql
+\i sql/10_user_username.sql

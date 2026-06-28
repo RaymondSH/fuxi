@@ -20,6 +20,7 @@
 ## 通用约定
 
 - **Base URL**：`/api`
+- **鉴权**：除 `POST /api/auth/login` 外，所有 `/api` 接口都需带 `Authorization: Bearer <jwt>`；缺失/过期/无效返回 `401`，权限不足返回 `403`，超每日额度返回 `429`。详见「8. 鉴权 Auth」。
 - **格式**：请求/响应均为 JSON（文件上传用 `multipart/form-data`）
 - **时间**：存储用 ISO 8601（`2026-06-20T09:14:00Z`）；前端展示的「2 分钟前 / 昨天」由前端格式化，但接口同时返回 `created_at`（绝对时间）和 `relative`（相对文案）两个字段，前端可直接用 `relative`
 - **分页**：`?page=1&size=20`，响应带 `{ total, page, size }`
@@ -39,6 +40,7 @@
 
 | 枚举 | 取值 | 说明 |
 |------|------|------|
+| `user.role` | `member` `admin` | 角色；admin 可入库/删除/编译/管用户，member 只读+问答 |
 | `note.type` | `link` `pdf` `word` `excel` `image` | 来源类型；前端据此显示角标（LINK/PDF/WORD/XLSX/IMG·OCR） |
 | `search.mode` | `hybrid` `keyword` `semantic` | 混合 / 关键词 / 语义检索 |
 | `time_filter` | `all` `today` `week` `month` `year` | 时间筛选 |
@@ -207,6 +209,8 @@
 | `took_ms` | 耗时，对应搜索历史里的展示 |
 
 > **混合检索**：`mode=hybrid` 时后端并行跑关键词（Elasticsearch/PG 全文）和语义（pgvector），用 RRF 融合。这正是 demo 里反复强调的逻辑。
+>
+> **按标签浏览**：`q` 为空但 `tags` 非空时，后端按标签（+时间）过滤返回笔记（按时间倒序，不打分、不调 LLM、不计费），响应 `mode` 返回 `"tag"`。前端点击标签云即触发此路径（无需先输入关键词）。`q` 与 `tags` 都为空才返回空结果。
 
 ### `GET /api/tags` — 标签云
 
@@ -391,6 +395,109 @@
 ### `GET /api/qa/history`
 
 见「问答 QA」章节。
+
+---
+
+## 8. 鉴权 Auth
+
+> 系统不开放自助注册，账号由管理员创建（首个管理员用 `scripts/create_admin.py` 引导）。
+> 权限模型见 `docs/auth-design.md`。
+
+### `POST /api/auth/login` — 登录（公开）
+
+`identifier` 可填**用户名或邮箱**，二者皆可登录。
+
+```json
+// 请求
+{ "identifier": "zhangsan | user@example.com", "password": "******" }
+// 响应
+{
+  "access_token": "<jwt>",
+  "token_type": "bearer",
+  "user": { "id": "...", "username": "zhangsan", "email": "user@example.com",
+            "display_name": "张三", "role": "member",
+            "daily_token_limit": 100000, "is_active": true }
+}
+```
+
+账号或密码错误一律 `401 {"detail":"账号或密码错误"}`（不区分账号是否存在）；账号停用 `403`。
+
+### `GET /api/auth/me` — 当前用户（需登录）
+
+返回 `UserOut`（同上 `user` 对象）。
+
+### `GET /api/auth/users` — 用户列表（admin）
+
+`{ "items": [UserOut, ...] }`。
+
+### `GET /api/auth/usage` — 今日用量总览（admin）
+
+驱动管理员「用量看板」。返回各用户当日 token 消耗与有效额度。
+
+```json
+{
+  "tz": "Asia/Shanghai",
+  "items": [
+    { "id": "...", "email": "u@x.com", "display_name": "李四",
+      "role": "member", "limit": 100000, "used_today": 32140 }
+  ]
+}
+```
+
+`limit` 为 `null` 表示不限（admin）；`used_today` 按 `tz` 自然日聚合 `token_usage`。
+
+### `POST /api/auth/users` — 建号（admin）
+
+```json
+// 请求
+{ "username": "lisi", "email": "u@x.com", "password": "至少6位",
+  "display_name": "李四", "role": "member", "daily_token_limit": null }
+// 响应 201：UserOut
+```
+
+`username` 必填（≥2 位，唯一，登录可用）；`daily_token_limit` 为 `null` 表示用服务端默认（`DEFAULT_DAILY_TOKEN_LIMIT`）；邮箱或用户名重复 `409`。
+
+### `PATCH /api/auth/users/{id}` — 改用户（admin）
+
+可改 `username` / `display_name` / `role` / `daily_token_limit` / `is_active` / `password`（任意子集）。用户名/邮箱冲突 `409`。
+管理员不能停用自己（`400`）。响应 `UserOut`。
+
+### 权限标注（在各章节接口上生效）
+
+| 接口 | 权限 |
+|------|------|
+| `POST /ingest/url`、`POST /ingest/file`、`GET /ingest/jobs` | **admin** |
+| `DELETE /notes/{id}`、`POST /wiki/compile` | **admin** |
+| `GET /search/history`、`GET /qa/history` | 登录；默认仅返回**当前用户**记录；admin 传 `?scope=all` 看全部 |
+| 其余检索/问答/图谱/笔记/wiki 读接口 | 登录即可 |
+
+> **token 配额（已实装）**：`POST /qa`、`POST /qa/stream`、`POST /search`（semantic/hybrid，纯 keyword 不计费）会把本次 LLM/Embedding 的 token 计入当日用量。请求前若当日累计已达 `daily_token_limit`（member 未设额度则用 `DEFAULT_DAILY_TOKEN_LIMIT`；admin 不限）返回 `429 {"detail":"今日 token 额度（N）已用完，次日 0 点重置"}`。`/qa/stream` 在开流前检查，超额以普通 `429` 返回（不进 SSE 流）。
+
+---
+
+## 9. 系统状态 System
+
+### `GET /api/system/status` — 系统情况（需登录）
+
+驱动左下角「系统情况」面板与顶部版本号。只读聚合。
+
+```json
+{
+  "version": "0.4.0",
+  "storage_backend": "local",
+  "pg_version": "18.0",
+  "pgvector_version": "0.8.3",
+  "notes": 14, "entities": 58, "wikis": 3,
+  "db_size_bytes": 10237631,
+  "disk": { "total_bytes": 232386519040, "used_bytes": 111764430848, "free_bytes": 120605310976 }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `version` | 应用版本，单一来源 `config.app_version` |
+| `storage_backend` | `local` / `r2`；前端容量条在 local 下取服务器盘，R2 时该数仅代表服务器盘 |
+| `disk` | 存储根所在文件系统的总量/已用/可用，前端据此画容量条并强调「剩余可用」 |
 
 ---
 

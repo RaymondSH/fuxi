@@ -14,6 +14,9 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
+    # 应用版本（单一来源：main.py 的 FastAPI version 与前端系统状态都读这里）
+    app_version: str = "0.4.0"
+
     # 数据库
     database_url: str = os.getenv(
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/fuxi"
@@ -54,6 +57,15 @@ class Settings:
     # 留空则关键词路回退 Postgres ILIKE；填 http://127.0.0.1:9200 走 ES。
     es_url: str = os.getenv("ES_URL", "")
     es_timeout: float = float(os.getenv("ES_TIMEOUT", "5.0"))  # 检索/索引超时（秒）
+
+    # ── 鉴权 / 配额（见 docs/auth-design.md）──
+    # JWT_SECRET 必填（随机长串）；未配置时登录/鉴权直接报错，不放行。
+    jwt_secret: str = os.getenv("JWT_SECRET", "")
+    jwt_expire_hours: int = int(os.getenv("JWT_EXPIRE_HOURS", "168"))  # 默认 7 天
+    # 普通用户每日 token 上限（用户未单独设额度时用此默认）；admin 不限。
+    default_daily_token_limit: int = int(os.getenv("DEFAULT_DAILY_TOKEN_LIMIT", "100000"))
+    # 配额按此时区算「自然日」边界，次日 0 点重置。
+    usage_tz: str = os.getenv("USAGE_TZ", "Asia/Shanghai")
 
 
 settings = Settings()

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import NoteCard from "@/components/NoteCard";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import type { NoteSummary, SearchMode } from "@/lib/types";
@@ -13,13 +14,15 @@ const MODES: { key: SearchMode; label: string }[] = [
 
 interface SearchResponse {
   query: string;
-  mode: SearchMode;
+  mode: string; // hybrid | keyword | semantic | tag（按标签浏览）
   took_ms: number;
   total: number;
   results: NoteSummary[];
 }
 
-export default function SearchPage() {
+function SearchInner() {
+  const searchParams = useSearchParams();
+  const urlQ = searchParams.get("q") ?? "";
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<SearchMode>("hybrid");
   const [activeTags, setActiveTags] = useState<string[]>([]);
@@ -35,9 +38,23 @@ export default function SearchPage() {
       .catch(() => {});
   }, []);
 
+  // 顶栏检索：带 ?q= 进入或变化时，回填并自动执行一次
+  useEffect(() => {
+    if (urlQ) {
+      setQ(urlQ);
+      runSearch(urlQ, mode, activeTags);
+    }
+    // 仅随 URL 查询词变化触发；mode/tags 有各自的交互处理
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlQ]);
+
   const runSearch = useCallback(
     async (query: string, searchMode: SearchMode, tagList: string[]) => {
-      if (!query.trim()) return;
+      // 无关键词但选了标签时，走「按标签浏览」；都为空才跳过
+      if (!query.trim() && tagList.length === 0) {
+        setResp(null);
+        return;
+      }
       setLoading(true);
       setError("");
       try {
@@ -67,7 +84,7 @@ export default function SearchPage() {
       ? activeTags.filter((t) => t !== name)
       : [...activeTags, name];
     setActiveTags(next);
-    if (resp) runSearch(q, mode, next); // 已有结果时即时重搜
+    runSearch(q, mode, next); // 点标签即时检索（无关键词则按标签浏览）
   }
 
   function pickMode(m: SearchMode) {
@@ -145,7 +162,9 @@ export default function SearchPage() {
           <>
             <div className="mb-3 font-mono text-xs text-muted2">
               {resp.total} 条结果 · {resp.mode} · {resp.took_ms}ms
-              {resp.mode !== mode && "（语义不可用，已降级）"}
+              {resp.mode === "keyword" &&
+                mode !== "keyword" &&
+                "（语义不可用，已降级）"}
             </div>
             {resp.results.length === 0 ? (
               <p className="rounded-lg border border-line bg-panel px-4 py-8 text-center text-sm text-muted2">
@@ -168,5 +187,14 @@ export default function SearchPage() {
         )}
       </section>
     </div>
+  );
+}
+
+// useSearchParams 需要 Suspense 边界包裹
+export default function SearchPage() {
+  return (
+    <Suspense>
+      <SearchInner />
+    </Suspense>
   );
 }

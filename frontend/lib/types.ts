@@ -1,5 +1,38 @@
 // 与 docs/api-contract.md 对齐的前端类型定义。
 
+export type UserRole = "member" | "admin";
+
+export interface User {
+  id: string;
+  username: string | null;
+  email: string;
+  display_name: string | null;
+  role: UserRole;
+  daily_token_limit: number | null;
+  is_active: boolean;
+}
+
+export interface UsageRow {
+  id: string;
+  email: string;
+  display_name: string | null;
+  role: UserRole;
+  limit: number | null; // null = 不限（admin）
+  used_today: number;
+}
+
+export interface SystemStatus {
+  version: string;
+  storage_backend: string; // local | r2
+  pg_version: string;
+  pgvector_version: string | null;
+  notes: number;
+  entities: number;
+  wikis: number;
+  db_size_bytes: number;
+  disk: { total_bytes: number; used_bytes: number; free_bytes: number } | null;
+}
+
 export type NoteType = "link" | "pdf" | "word" | "excel" | "image";
 export type SearchMode = "hybrid" | "keyword" | "semantic";
 export type EntityCat = "concept" | "product" | "company";

@@ -1,0 +1,15 @@
+fastapi>=0.115.0          # Web 框架
+uvicorn[standard]>=0.30.0  # ASGI 服务器
+python-multipart>=0.0.9   # 文件上传（UploadFile 依赖）
+httpx>=0.27.0              # 网页抓取
+pypdf>=5.0.0              # PDF 文本提取
+python-docx>=1.1.0        # Word 文本提取
+openpyxl>=3.1.0           # Excel 表格提取
+psycopg[binary,pool]>=3.2.0  # PostgreSQL 驱动 + 连接池
+pgvector>=0.3.0          # vector 类型适配
+openai>=1.40.0            # LLM/Embedding 统一经 OpenAI 兼容协议调用（智谱 GLM 等）；
+                          #   智谱 /api/paas/v4/ 兼容 OpenAI 协议，复用此 SDK + base_url
+python-dotenv>=1.0.0     # 读取 .env
+sse-starlette>=2.1.0     # SSE 流式问答（EventSourceResponse，POST /qa/stream）
+boto3>=1.34.0            # 原始文件落 R2/S3（S3 兼容；local 模式不需要，延迟导入）
+langchain-text-splitters>=0.3.0  # 文档分块（RecursiveCharacterTextSplitter，纯文本切分）

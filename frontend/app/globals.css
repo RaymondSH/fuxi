@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* ── house style 色板（源自设计稿，见 CLAUDE.md §6）──
+   定义为 Tailwind theme token，生成 bg-brand / text-ink 等工具类 */
+@theme {
+  --color-brand: #b25b3c; /* 主品牌色 terracotta */
+  --color-brand-soft: #f5e7de;
+  --color-cream: #fbf1e9; /* 奶白底 / 反白文字 */
+  --color-panel: #f4f0e8; /* 面板 / 卡片底 */
+  --color-ink: #2b2722; /* 正文 */
+  --color-muted: #6f675b; /* 次要文字 */
+  --color-muted2: #8c8273;
+  --color-accent: #9a4a2f; /* 强调 / 激活 */
+  --color-line: #e7ddd0; /* 分隔线 */
+
+  /* 实体类别色 */
+  --color-cat-concept: #6e8b5e;
+  --color-cat-concept-soft: #e9efe2;
+  --color-cat-product: #b25b3c;
+  --color-cat-product-soft: #f5e7de;
+  --color-cat-company: #5c7796;
+  --color-cat-company-soft: #e4eaf1;
+
+  --font-serif: Georgia, "Songti SC", "Noto Serif SC", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Noto Sans SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 细滚动条，配暖色调 */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #e0d5c6;
+  border-radius: 6px;
+}

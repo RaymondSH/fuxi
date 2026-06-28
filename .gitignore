@@ -1,0 +1,58 @@
+# ── 密钥 / 环境变量（永不提交）──
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ── Node / Next.js ──
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Docker（本地卷 / 构建产物，不进版本库）──
+deploy/es/es-data/
+*.local
+
+# ── 原始文件落盘目录（STORAGE_LOCAL_ROOT，运行时生成）──
+raw/
+
+# ── 日志 ──
+*.log
+logs/
+
+# ── macOS / 编辑器 ──
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── 数据库转储 / 临时文件 ──
+*.dump
+*.sql.bak
+/tmp/

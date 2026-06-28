@@ -1,0 +1,36 @@
+# ES 8 单节点 + ik 中文分词插件。
+# 仅绑 127.0.0.1，不对外暴露（数据存储同 PG/Redis 一样走内网）。
+# 安全：单机开发用，关闭安全模块（xpack security enabled=false），免证书/免认证。
+services:
+  es:
+    build:
+      context: .
+      dockerfile: Dockerfile.es
+      args:
+        ES_VERSION: "8.17.6"
+    image: fuxi/es-ik:8.17.6
+    container_name: fuxi-es
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+volumes:
+  es-data:

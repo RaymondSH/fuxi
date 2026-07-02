@@ -1,0 +1,14 @@
+# fuxi 备份定时器：每日 03:00 触发 fuxi-backup.service。
+# 服务器时间（Debian 12 默认 UTC 或按部署配置）。若要按北京时间，调 OnCalendar。
+#
+# 部署见 fuxi-backup.service 头部说明。
+[Unit]
+Description=daily fuxi backup timer
+
+[Timer]
+# 每天 03:00 跑；若错过（机器关机）开机后补跑一次
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

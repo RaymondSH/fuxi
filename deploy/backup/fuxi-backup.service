@@ -1,0 +1,22 @@
+# fuxi 定时备份。
+#
+# 部署：
+#   cp deploy/backup/fuxi-backup.service deploy/backup/fuxi-backup.timer /etc/systemd/system/
+#   chmod +x /opt/fuxi/deploy/backup/pg_dump.sh
+#   systemctl daemon-reload && systemctl enable --now fuxi-backup.timer
+#
+# 手动跑一次：systemctl start fuxi-backup.service
+# 看结果：     journalctl -u fuxi-backup.service -n 50 --no-pager
+#   （或直接 /opt/fuxi/deploy/backup/pg_dump.sh）
+[Unit]
+Description=fuxi database + raw files backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+# 跑在服务器 /opt/fuxi 上下文，复用 fuxi 用户的 PATH（pg_dump 在系统 PATH 里）
+WorkingDirectory=/opt/fuxi
+ExecStart=/opt/fuxi/deploy/backup/pg_dump.sh
+# 失败不重启（timer 次日照常触发）；想即时告警接 journald 监控
+StandardOutput=journal
+StandardError=journal

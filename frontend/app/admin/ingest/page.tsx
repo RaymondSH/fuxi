@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import TypeBadge from "@/components/TypeBadge";
+import { canAct, useSpaces } from "@/components/SpacesProvider";
 import { apiGet, apiPost, apiUpload, ApiError } from "@/lib/api";
 import type { IngestJob, IngestStage } from "@/lib/types";
 
@@ -10,6 +11,7 @@ const STAGE_LABEL: Record<IngestStage, string> = {
   fetch: "抓取",
   extract: "解析",
   refine: "提炼",
+  chunk: "分块",
   embedding: "向量化",
   store: "写库",
   done: "完成",
@@ -26,6 +28,10 @@ const STATUS_META: Record<
 };
 
 export default function IngestPage() {
+  const { spaces, activeSpace } = useSpaces();
+  const targetSpace = activeSpace && canAct(activeSpace.my_role, "editor")
+    ? activeSpace
+    : spaces.find((s) => canAct(s.my_role, "editor")) || null;
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -55,7 +61,8 @@ export default function IngestPage() {
     setSubmitting(true);
     setError("");
     try {
-      await apiPost("/ingest/url", { url: v });
+      if (!targetSpace) throw new ApiError("forbidden", "没有可入库的空间", 403);
+      await apiPost("/ingest/url", { url: v, space_id: targetSpace.id });
       setUrl("");
       loadJobs();
     } catch (err) {
@@ -69,7 +76,9 @@ export default function IngestPage() {
     setSubmitting(true);
     setError("");
     try {
-      await apiUpload("/ingest/file", file);
+      if (!targetSpace) throw new ApiError("forbidden", "没有可入库的空间", 403);
+      // 后端 /ingest/file 不读 JSON body（multipart），space_id 通过查询参数传
+      await apiUpload(`/ingest/file?space_id=${targetSpace.id}`, file);
       loadJobs();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "上传失败");
@@ -86,6 +95,11 @@ export default function IngestPage() {
         <p className="mt-1 text-sm text-muted">
           粘贴链接或上传文件，自动抓取、提炼摘要与要点、写入知识库。
         </p>
+        {targetSpace && (
+          <p className="mt-1 font-mono text-xs text-muted2">
+            目标空间：{targetSpace.name}
+          </p>
+        )}
       </header>
 
       {/* 链接入库 */}

@@ -4,29 +4,40 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { canAct, useSpaces } from "@/components/SpacesProvider";
 import SystemStatus from "@/components/SystemStatus";
 import { apiGet } from "@/lib/api";
 import type { SystemStatus as SystemStatusData } from "@/lib/types";
 
 const NAV: { href: string; label: string; en: string }[] = [
   { href: "/search", label: "检索", en: "Search" },
+  { href: "/notes", label: "笔记", en: "Notes" },
   { href: "/qa", label: "问答", en: "Ask" },
   { href: "/graph", label: "知识图谱", en: "Graph" },
   { href: "/wiki", label: "主题页", en: "Wiki" },
+  { href: "/spaces", label: "空间", en: "Spaces" },
   { href: "/history", label: "历史", en: "History" },
+  { href: "/governance", label: "知识治理", en: "Governance" },
+  { href: "/connectors", label: "企业连接", en: "Connectors" },
+  { href: "/notifications", label: "通知", en: "Notices" },
+  { href: "/agent", label: "治理 Agent", en: "Agent" },
 ];
 
-// 仅管理员可见（入库等策展操作收进管理后台）
+// 仅系统管理员可见。
 const ADMIN_NAV: { href: string; label: string; en: string }[] = [
-  { href: "/admin/ingest", label: "入库", en: "Ingest" },
   { href: "/admin/users", label: "用户", en: "Users" },
+  { href: "/admin/tags", label: "标签治理", en: "Tags" },
   { href: "/admin/usage", label: "用量", en: "Usage" },
+  { href: "/admin/mcp", label: "MCP", en: "MCP" },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { spaces } = useSpaces();
+  const canIngest = user?.role === "admin" || spaces.some((s) => canAct(s.my_role, "editor"));
   const [status, setStatus] = useState<SystemStatusData | null>(null);
+  const [unread, setUnread] = useState(0);
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
 
@@ -34,6 +45,8 @@ export default function Sidebar() {
     apiGet<SystemStatusData>("/system/status")
       .then(setStatus)
       .catch(() => {});
+    apiGet<{ unread: number }>("/notifications?unread_only=true")
+      .then((x) => setUnread(x.unread)).catch(() => {});
   }, []);
 
   return (
@@ -54,8 +67,22 @@ export default function Sidebar() {
       {/* 导航 */}
       <nav className="flex flex-col gap-1 px-3">
         {NAV.map((item) => (
-          <NavLink key={item.href} item={item} active={isActive(item.href)} />
+          <NavLink key={item.href}
+            item={item.href === "/notifications" && unread ? {...item, label: `通知 (${unread})`} : item}
+            active={isActive(item.href)} />
         ))}
+        {canIngest && (
+          <>
+            <NavLink
+              item={{ href: "/ingest", label: "入库", en: "Ingest" }}
+              active={isActive("/ingest")}
+            />
+            <NavLink
+              item={{ href: "/trash", label: "回收站", en: "Trash" }}
+              active={isActive("/trash")}
+            />
+          </>
+        )}
 
         {user?.role === "admin" && (
           <>
@@ -86,6 +113,12 @@ export default function Sidebar() {
             </div>
           </div>
         )}
+        <Link
+          href="/settings"
+          className="mb-2 block w-full rounded-lg border border-line bg-white px-3 py-1.5 text-xs text-muted transition-colors hover:border-brand hover:text-accent"
+        >
+          修改密码
+        </Link>
         <button
           onClick={logout}
           className="w-full rounded-lg border border-line bg-white px-3 py-1.5 text-xs text-muted transition-colors hover:border-brand hover:text-accent"

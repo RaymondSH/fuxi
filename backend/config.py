@@ -15,7 +15,11 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     # 应用版本（单一来源：main.py 的 FastAPI version 与前端系统状态都读这里）
-    app_version: str = "0.4.0"
+    app_version: str = "0.8.0"
+
+    # 日志：json（生产默认）/ text（本地开发便于阅读）；级别 LOG_LEVEL。
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    log_format: str = os.getenv("LOG_FORMAT", "json")
 
     # 数据库
     database_url: str = os.getenv(
@@ -31,6 +35,8 @@ class Settings:
     # 向量维度必须和 sql/02_notes.sql 的 vector(1536) 一致；换维度要同时改 SQL
     embed_model: str = os.getenv("EMBED_MODEL", "embedding-3")
     embed_dim: int = int(os.getenv("EMBED_DIM", "1536"))
+    rerank_model: str = os.getenv("RERANK_MODEL", "rerank")
+    rerank_enabled: bool = os.getenv("RERANK_ENABLED", "true").lower() in ("1", "true", "yes")
 
     # ── 文档分块 ──
     # 长文档按 chunk_size 切块（含 overlap 重叠，避免切断语义）；过短的块并入相邻块。
@@ -61,11 +67,34 @@ class Settings:
     # ── 鉴权 / 配额（见 docs/auth-design.md）──
     # JWT_SECRET 必填（随机长串）；未配置时登录/鉴权直接报错，不放行。
     jwt_secret: str = os.getenv("JWT_SECRET", "")
-    jwt_expire_hours: int = int(os.getenv("JWT_EXPIRE_HOURS", "168"))  # 默认 7 天
+    # 双 token：access 短时（分钟）+ refresh 长时（天）。
+    # jwt_expire_hours 保留作旧 token 兼容（仅未迁移的存量 token 仍按其 exp 校验）。
+    jwt_access_expire_minutes: int = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "15"))
+    jwt_refresh_expire_days: int = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7"))
     # 普通用户每日 token 上限（用户未单独设额度时用此默认）；admin 不限。
     default_daily_token_limit: int = int(os.getenv("DEFAULT_DAILY_TOKEN_LIMIT", "100000"))
     # 配额按此时区算「自然日」边界，次日 0 点重置。
     usage_tz: str = os.getenv("USAGE_TZ", "Asia/Shanghai")
+
+    # ── 账号安全 ──
+    # 连续登录失败达 login_max_attempts 次后锁定 login_lock_minutes 分钟。
+    login_max_attempts: int = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+    login_lock_minutes: int = int(os.getenv("LOGIN_LOCK_MINUTES", "15"))
+
+    # ── CORS ──
+    # 逗号分隔的允许源。Web 走 nginx 同源（不需要）；移动端 Expo 直连后端需要放行。
+    # 生产建议填实际域名；默认放开本地 + 服务器前端源。
+    cors_origins: str = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:19000,http://127.0.0.1:19000",
+    )
+
+    # MCP DNS rebinding 防护允许的 Host（逗号分隔，支持 host:* 端口通配）。
+    mcp_allowed_hosts: str = os.getenv(
+        "MCP_ALLOWED_HOSTS",
+        "localhost:*,127.0.0.1:*,118.25.93.30:*",
+    )
+    connector_secret_key: str = os.getenv("CONNECTOR_SECRET_KEY", "")
 
 
 settings = Settings()

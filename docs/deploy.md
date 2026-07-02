@@ -22,16 +22,17 @@ Debian 12，root，sudo 免密，已有 Docker / nginx / Redis 等。**本地 Ma
 连接串：postgresql://fuxi:fuxi@localhost:5432/fuxi
 ```
 
-schema（`sql/01~07`）已灌入并验证：10 张表（含 `note_chunks`）+ 2 视图（entity_note_counts / entity_cooccurrence）+ 3 个 HNSW 索引（notes.embedding / note_chunks.embedding / wiki_pages.embedding）。
+schema（`sql/01~33`）已灌入并验证，包含鉴权/审计、Q&A/标签/MCP、空间 ACL、M3 生命周期与
+治理、M4 连接器/通知/Agent。M2 历史数据已归入 default 空间，ES 已按空间字段重建索引。
 
-重灌 schema（会保留已有数据，CREATE TABLE 若已存在会报错）：
+全新环境初始化：
 ```bash
-scp sql/0*.sql linux-server:/tmp/
-ssh linux-server 'for f in 01_extensions 02_notes 03_graph 04_wiki 05_history 06_jobs 07_chunks; do
-  sudo -u postgres psql -v ON_ERROR_STOP=1 -d fuxi -f /tmp/$f.sql; done'
+rsync -az sql/ linux-server:/opt/fuxi/sql/
+ssh linux-server 'sudo -u postgres psql -v ON_ERROR_STOP=1 -d fuxi -f /opt/fuxi/sql/00_init.sql'
 ```
 
-> `07_chunks.sql` 新增 `note_chunks` 表并改了 `06_jobs.sql` 的 stage CHECK（加 `chunk` 和 `compile`）。重灌 `06_jobs.sql` 若已有旧 jobs 数据，ALTER 约束需手动执行（见该文件末注释）。
+已有环境升级必须先备份，再按尚未执行的编号顺序运行迁移；不要对已有库直接重跑
+`00_init.sql`。M2 升级后运行 `scripts/migrate_m2_spaces.py` 回填空间归属并重建 ES。
 
 ### 本地连服务器数据库（SSH 隧道）
 
@@ -41,7 +42,7 @@ ssh -N -L 5432:127.0.0.1:5432 linux-server
 # 之后本地 DATABASE_URL=postgresql://fuxi:fuxi@localhost:5432/fuxi 即可
 ```
 
-## 当前运行实例（2026-06-28）
+## 当前运行实例（2026-07-02）
 
 代码部署在 `/opt/fuxi`，前后端都跑在 linux-server 上。
 
@@ -49,18 +50,20 @@ ssh -N -L 5432:127.0.0.1:5432 linux-server
 |------|------|------|
 | 后端 FastAPI | `127.0.0.1:8000`（内部） | 由前端 `/api` 代理 |
 | 前端 Next.js | `0.0.0.0:19000` | **http://118.25.93.30:19000** |
+| 持久化任务 worker | 无 HTTP 监听 | 消费 PostgreSQL `jobs` 队列 |
 
-进程由 **systemd** 托管（开机自启 + `Restart=always`）：`fuxi-backend`、`fuxi-frontend`。
-单元文件在 `/etc/systemd/system/fuxi-{backend,frontend}.service`。
+当前部署版本为 **v0.8.0**。进程由 **systemd** 托管（开机自启 + `Restart=always`）：
+`fuxi-backend`、`fuxi-frontend`、`fuxi-worker`。`fuxi-backup.timer` 每日 03:00 触发数据库与
+原始文件备份；`fuxi-maintenance.timer` 每小时入队来源刷新、治理巡检、连接器同步与 Agent 规划。
 
 - 后端 `.env` 的 `API_KEY` 已填入智谱密钥（经 `/etc/profile` 注入 + systemd `bash -lc` 包裹使对进程可见）→ 入库/检索/问答/Wiki 编译全链路可跑通。
 
 ### 常用运维
 
 ```bash
-ssh linux-server 'systemctl status fuxi-backend fuxi-frontend'   # 状态
-ssh linux-server 'systemctl restart fuxi-backend'                # 重启后端
-ssh linux-server 'journalctl -u fuxi-backend -n 50 --no-pager'   # 看日志
+ssh linux-server 'systemctl status fuxi-backend fuxi-frontend fuxi-worker fuxi-backup.timer'
+ssh linux-server 'systemctl restart fuxi-backend fuxi-worker'
+ssh linux-server 'journalctl -u fuxi-backend -u fuxi-worker -n 100 --no-pager'
 ```
 
 ### 更新代码后重新部署
@@ -71,9 +74,9 @@ rsync -az --delete --exclude node_modules --exclude .next --exclude __pycache__ 
   --exclude .venv --exclude .env --exclude '*.pyc' --exclude '*.log' \
   backend frontend sql docs deploy scripts linux-server:/opt/fuxi/
 
-# 服务器：后端依赖有变才需要 pip install，然后重启
+# 服务器：后端依赖有变才需要 pip install，然后重启 API 与 worker
 ssh linux-server 'cd /opt/fuxi/backend && . .venv/bin/activate && pip install -q -r requirements.txt \
-  -i https://pypi.tuna.tsinghua.edu.cn/simple; systemctl restart fuxi-backend'
+  -i https://pypi.tuna.tsinghua.edu.cn/simple; systemctl restart fuxi-backend fuxi-worker'
 
 # 服务器：前端改动要重新 build 再重启
 ssh linux-server 'export PATH=/usr/local/bin:$PATH; cd /opt/fuxi/frontend && npm install --no-audit --no-fund && \
@@ -81,6 +84,16 @@ ssh linux-server 'export PATH=/usr/local/bin:$PATH; cd /opt/fuxi/frontend && npm
 ```
 
 填密钥：编辑 `/opt/fuxi/backend/.env` 的 `API_KEY`（智谱密钥，聊天/视觉/向量共用），再 `ssh linux-server 'systemctl restart fuxi-backend'`。当前已填入并跑通。
+
+### M0~M4 回归验收
+
+```bash
+ssh linux-server 'cd /opt/fuxi && PYTHONPATH=backend backend/.venv/bin/python scripts/verify_m0_m2.py'
+ssh linux-server 'cd /opt/fuxi && PYTHONPATH=backend backend/.venv/bin/python scripts/verify_m3_m4.py'
+```
+
+脚本覆盖 Cookie/移动端 token 隔离、持久化 worker、跨空间 ACL、MCP 空间绑定，以及 M3/M4
+版本/回收站/恢复、订阅通知、连接器凭据密文边界和 Agent 入队；测试数据在 `finally` 中清理。
 
 ## 后端环境变量（`.env`）
 
@@ -96,6 +109,7 @@ ssh linux-server 'export PATH=/usr/local/bin:$PATH; cd /opt/fuxi/frontend && npm
 | `STORAGE_LOCAL_ROOT` | local 后端落盘根目录（默认 `/opt/fuxi/raw`） |
 | `R2_ENDPOINT` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_PUBLIC_BASE_URL` | R2 凭据（`STORAGE_BACKEND=r2` 时才用，留空自动回退 local） |
 | `ES_URL` / `ES_TIMEOUT` | ES 地址与超时；留空则关键词路回退 PG ILIKE，填地址即走 ES |
+| `CONNECTOR_SECRET_KEY` | M4 连接器凭据 Fernet 主密钥；生产已配置，禁止输出或提交 |
 
 ## Elasticsearch（8 + ik 中文分词）
 

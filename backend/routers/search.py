@@ -1,10 +1,12 @@
 """检索 HTTP 接口。
 
   POST /search           关键词 / 语义 / 混合(hybrid) 检索，写入 search_history
-  GET  /tags             标签云
   GET  /search/history   搜索历史
 
-混合检索：关键词路（Postgres ILIKE）+ 语义路（pgvector）用 RRF 融合。
+标签云 GET /tags 已迁至 routers/tags.py（与受控词表治理同组）。
+
+关键词路走 Elasticsearch + ik 中文分词（按词切分，命中更准），ES 不可达自动回退 Postgres ILIKE；
+语义路走 pgvector（chunk 级，取每篇最优块聚合）。hybrid 用 RRF 融合两路。
 没有 API_KEY 时语义路拿不到查询向量，hybrid 自动降级为纯关键词。
 """
 from __future__ import annotations
@@ -17,7 +19,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from db import pool
-from services import embedder, es, quota, usage
+from services import embedder, es, guardrails, quota, reranker, spaces, usage
 from services.auth import CurrentUser, get_current_user
 
 router = APIRouter(tags=["search"])
@@ -68,7 +70,9 @@ def search(req: SearchRequest, user: CurrentUser = Depends(get_current_user)) ->
         if not req.tags:
             return SearchResponse(query=q, mode=req.mode, took_ms=0, total=0, results=[])
         with pool.connection() as conn:
-            ordered = _tag_search(conn, req.tags, req.time_filter)
+            sids = spaces.visible_space_ids(conn, user)
+            sf, sfp = spaces.space_filter_from(sids)
+            ordered = _tag_search(conn, req.tags, req.time_filter, sf, sfp)
         total = len(ordered)
         page_rows = ordered[(req.page - 1) * req.size : (req.page - 1) * req.size + req.size]
         results = [_to_result(r, q) for r in page_rows]
@@ -81,10 +85,15 @@ def search(req: SearchRequest, user: CurrentUser = Depends(get_current_user)) ->
         quota.check_quota(user)
 
     with usage.collect() as u, pool.connection() as conn:
-        kw_rows = _keyword_search(conn, q, req.tags, req.time_filter)
-        vec = _try_embed(q) if req.mode in ("hybrid", "semantic") else None
+        # M2：算一次可见空间集合，关键词路 + 语义路共用（ES 侧也用字符串形式过滤）
+        sids = spaces.visible_space_ids(conn, user)
+        sf, sfp = spaces.space_filter_from(sids)
+        es_sids = spaces.visible_space_strs(conn, user) if sids is not None else None
+        kw_rows = _keyword_search(conn, q, req.tags, req.time_filter, sf, sfp, es_sids)
+        safe_q, _ = guardrails.mask_pii(q)
+        vec = _try_embed(safe_q) if req.mode in ("hybrid", "semantic") else None
         sem_rows = (
-            _semantic_search(conn, vec, req.tags, req.time_filter)
+            _semantic_search(conn, vec, req.tags, req.time_filter, sf, sfp)
             if vec is not None
             else []
         )
@@ -103,6 +112,11 @@ def search(req: SearchRequest, user: CurrentUser = Depends(get_current_user)) ->
             ordered = kw_rows
             effective_mode = "keyword"
 
+    if effective_mode == "hybrid" and len(ordered) > 1:
+        safe_q, _ = guardrails.mask_pii(q)
+        with pool.connection() as conn:
+            ordered = reranker.rerank_rows(safe_q, ordered, conn, usage_acc=u)
+
     total = len(ordered)
     start = (req.page - 1) * req.size
     page_rows = ordered[start : start + req.size]
@@ -113,23 +127,6 @@ def search(req: SearchRequest, user: CurrentUser = Depends(get_current_user)) ->
 
     took = int((time.perf_counter() - t0) * 1000)
     return SearchResponse(query=q, mode=effective_mode, took_ms=took, total=total, results=results)
-
-
-@router.get("/tags")
-def list_tags() -> dict:
-    """标签云：统计 done 笔记里各标签出现次数。"""
-    with pool.connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT tag, COUNT(*)::int AS cnt
-            FROM notes, unnest(tags) AS tag
-            WHERE ingest_status = 'done'
-            GROUP BY tag
-            ORDER BY cnt DESC, tag
-            LIMIT 60
-            """
-        ).fetchall()
-    return {"items": [{"name": r[0], "count": r[1]} for r in rows]}
 
 
 @router.get("/search/history")
@@ -175,9 +172,16 @@ def _try_embed(q: str):
         return None
 
 
-def _filters(tags: list[str], time_filter: str) -> tuple[str, list]:
-    """拼附加过滤条件（标签 / 时间），返回 SQL 片段与参数。"""
-    clauses, params = [], []
+def _filters(tags: list[str], time_filter: str, space_frag: str = "", space_params: list | None = None) -> tuple[str, list]:
+    """拼附加过滤条件（空间 / 标签 / 时间），返回 SQL 片段与参数。
+
+    space_frag（M2）是已生成好的空间过滤片段（如 " AND notes.space_id = ANY(%s::uuid[])"），
+    直接拼到 WHERE 末尾；space_params 是其参数。sysadmin 传空串则不加。
+    """
+    clauses, params = ["deleted_at IS NULL"], []
+    if space_frag:
+        clauses.append(space_frag.lstrip(" AND "))
+        params.extend(space_params or [])
     if tags:
         clauses.append("tags && %s::text[]")  # 标签有交集
         params.append(tags)
@@ -188,9 +192,9 @@ def _filters(tags: list[str], time_filter: str) -> tuple[str, list]:
     return ("".join(f" AND {c}" for c in clauses), params)
 
 
-def _tag_search(conn, tags, time_filter) -> list[tuple]:
-    """按标签浏览：无查询词时用，纯标签（+时间）过滤，按时间倒序。不打分、不调 LLM。"""
-    extra, extra_params = _filters(tags, time_filter)  # extra 含 tags && + 时间过滤
+def _tag_search(conn, tags, time_filter, space_frag="", space_params=None) -> list[tuple]:
+    """按标签浏览：无查询词时用，纯标签（+时间+空间）过滤，按时间倒序。不打分、不调 LLM。"""
+    extra, extra_params = _filters(tags, time_filter, space_frag, space_params)  # extra 含空间 + tags + 时间过滤
     sql = f"""
         SELECT {_COLS}
         FROM notes
@@ -201,31 +205,35 @@ def _tag_search(conn, tags, time_filter) -> list[tuple]:
     return conn.execute(sql, extra_params).fetchall()
 
 
-def _keyword_search(conn, q: str, tags, time_filter) -> list[tuple]:
+def _keyword_search(conn, q: str, tags, time_filter, space_frag="", space_params=None, es_sids=None) -> list[tuple]:
     """关键词检索：优先走 ES + ik 中文分词（按词切分，命中更准）；
     ES 不可达或无命中时回退 Postgres ILIKE（子串匹配）。
 
     两条路都返回 _COLS + score 的行，与语义路同构，便于 RRF 融合。
+    es_sids（M2）传给 ES search 做空间硬过滤；PG 回查再补一次空间过滤（双保险）。
     """
-    es_hits = es.search(q, tags=tags, limit=100)
+    es_hits = es.search(q, tags=tags, limit=100, space_ids=es_sids)
     if es_hits:
         # ES 已按相关度排序；回查 PG 取 _COLS 与过滤条件，再按 ES 顺序拼回 score。
-        return _keyword_search_by_ids(conn, es_hits, time_filter)
-    return _keyword_search_ilike(conn, q, tags, time_filter)
+        return _keyword_search_by_ids(conn, es_hits, time_filter, space_frag, space_params)
+    return _keyword_search_ilike(conn, q, tags, time_filter, space_frag, space_params)
 
 
-def _keyword_search_by_ids(conn, es_hits: list[tuple[str, float]], time_filter: str) -> list[tuple]:
-    """按 ES 召回的 note_id 回查 PG 取 _COLS（含时间过滤），保持 ES 排序与分数。
+def _keyword_search_by_ids(conn, es_hits: list[tuple[str, float]], time_filter: str, space_frag="", space_params=None) -> list[tuple]:
+    """按 ES 召回的 note_id 回查 PG 取 _COLS（含时间+空间过滤），保持 ES 排序与分数。
 
-    标签过滤已在 ES 侧完成（terms filter），这里只补时间过滤。
+    标签过滤已在 ES 侧完成（terms filter），这里只补时间 + 空间过滤（空间双保险）。
     """
     if not es_hits:
         return []
     ids = [h[0] for h in es_hits]
     id2score = {h[0]: h[1] for h in es_hits}
     interval = _TIME_INTERVAL.get(time_filter)
-    where = "id = ANY(%s::uuid[]) AND ingest_status = 'done'"
+    where = "id = ANY(%s::uuid[]) AND ingest_status = 'done' AND deleted_at IS NULL"
     params: list = [ids]
+    if space_frag:
+        where += space_frag  # 已含前导 " AND notes.space_id = ..."
+        params.extend(space_params or [])
     if interval:
         where += " AND created_at >= NOW() - %s::interval"
         params.append(interval)
@@ -241,9 +249,9 @@ def _keyword_search_by_ids(conn, es_hits: list[tuple[str, float]], time_filter: 
     return out
 
 
-def _keyword_search_ilike(conn, q: str, tags, time_filter) -> list[tuple]:
+def _keyword_search_ilike(conn, q: str, tags, time_filter, space_frag="", space_params=None) -> list[tuple]:
     """ILIKE 子串回退：无 ES 或 ES 无命中时使用。"""
-    extra, extra_params = _filters(tags, time_filter)
+    extra, extra_params = _filters(tags, time_filter, space_frag, space_params)
     like = f"%{q}%"
     sql = f"""
         SELECT {_COLS},
@@ -260,12 +268,19 @@ def _keyword_search_ilike(conn, q: str, tags, time_filter) -> list[tuple]:
     return conn.execute(sql, params).fetchall()
 
 
-def _semantic_search(conn, vec, tags, time_filter) -> list[tuple]:
+def _semantic_search(conn, vec, tags, time_filter, space_frag="", space_params=None) -> list[tuple]:
     """chunk 级语义检索：每块算余弦相似，取每篇笔记最高分聚合回 note，按分排序。
 
     note_chunks 为主召回路；没有 chunk 的笔记回退 notes.embedding（见 _semantic_search_doc）。
     """
-    extra, extra_params = _filters(tags, time_filter)
+    extra, extra_params = _filters(tags, time_filter, space_frag, space_params)
+    # 子查询里的空间过滤：space_frag 用的是 "notes." 别名，子查询里 notes 别名是 n，
+    # 故单独构造一份 n. 版本。sysadmin（space_frag 为空）则不加。
+    sub_space_frag = ""
+    sub_space_params: list = []
+    if space_frag:
+        sub_space_frag = space_frag.replace("notes.space_id", "n.space_id")
+        sub_space_params = list(space_params or [])
     # 先按 note 聚合：取每篇笔记里最相似的块分（MAX），保证一篇笔记只出一条。
     # 注意：过滤条件里的 tags/created_at 是裸列名，只在 notes 未起别名时才能解析，
     # 所以 extra 必须落到外层 WHERE；子查询里列也显式限定到 notes 避免二义。
@@ -277,7 +292,8 @@ def _semantic_search(conn, vec, tags, time_filter) -> list[tuple]:
             SELECT c.note_id AS id, MAX(1 - (c.embedding <=> %s::vector)) AS sim
             FROM note_chunks c
             JOIN notes n ON n.id = c.note_id
-            WHERE n.ingest_status = 'done' AND c.embedding IS NOT NULL
+            WHERE n.ingest_status = 'done' AND n.deleted_at IS NULL
+              AND c.embedding IS NOT NULL{sub_space_frag}
             GROUP BY c.note_id
             ORDER BY MAX(c.embedding <=> %s::vector)
             LIMIT 200
@@ -287,16 +303,16 @@ def _semantic_search(conn, vec, tags, time_filter) -> list[tuple]:
         ORDER BY best.sim DESC, notes.created_at DESC
         LIMIT 100
     """
-    rows = conn.execute(sql, [vec, vec, *extra_params]).fetchall()
+    rows = conn.execute(sql, [vec, *sub_space_params, vec, *extra_params]).fetchall()
     if rows:
         return rows
     # 无 chunk 时回退文档级向量
-    return _semantic_search_doc(conn, vec, tags, time_filter)
+    return _semantic_search_doc(conn, vec, tags, time_filter, space_frag, space_params)
 
 
-def _semantic_search_doc(conn, vec, tags, time_filter) -> list[tuple]:
+def _semantic_search_doc(conn, vec, tags, time_filter, space_frag="", space_params=None) -> list[tuple]:
     """文档级语义检索（notes.embedding），chunk 表为空时的回退。"""
-    extra, extra_params = _filters(tags, time_filter)
+    extra, extra_params = _filters(tags, time_filter, space_frag, space_params)
     sql = f"""
         SELECT {_COLS}, 1 - (embedding <=> %s::vector) AS sim
         FROM notes

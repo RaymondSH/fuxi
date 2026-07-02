@@ -16,15 +16,20 @@ from collections.abc import AsyncIterator
 from openai import AsyncOpenAI, OpenAI
 
 from config import settings
-from services import usage
+from services import guardrails, usage
 from services.providers.base import (
+    ConflictAssessment,
     INGEST_SYSTEM,
-    QA_SYSTEM,
+    QA_GEN_SYSTEM,
     WIKI_COMPILE_SYSTEM,
     EmbeddingProvider,
     IngestResult,
     LLMProvider,
+    QaGenResult,
+    QueryPlan,
+    QaStyle,
     WikiCompileResult,
+    build_qa_system,
 )
 
 # 懒加载：模块导入时不创建客户端，否则空 API key 会让整个后端起不来。
@@ -66,6 +71,7 @@ class GLMProvider(LLMProvider):
     def analyze(self, content: str, *, title_hint: str = "") -> IngestResult:
         """入库提炼：摘要+要点+标签+实体，结构化 JSON 输出。"""
         user = content if not title_hint else f"标题提示：{title_hint}\n\n正文：\n{content}"
+        user, _ = guardrails.mask_pii(user)
         resp = _get_client().chat.completions.create(
             model=settings.chat_model,
             max_tokens=4096,
@@ -84,14 +90,18 @@ class GLMProvider(LLMProvider):
         text = resp.choices[0].message.content or ""
         return IngestResult.model_validate_json(text)
 
-    def answer(self, question: str, context: str, history: list[dict] | None = None) -> str:
+    def answer(self, question: str, context: str, history: list[dict] | None = None,
+               *, style: QaStyle = "default") -> str:
         """基于检索到的来源生成带依据的回答。history 为多轮上下文。"""
+        question, _ = guardrails.mask_pii(question)
+        context, _ = guardrails.mask_pii(context)
         messages: list[dict] = [
-            {"role": "system", "content": QA_SYSTEM},
+            {"role": "system", "content": build_qa_system(style)},
         ]
         for turn in history or []:
             role = "assistant" if turn.get("role") == "assistant" else "user"
-            messages.append({"role": role, "content": turn.get("text", "")})
+            text, _ = guardrails.mask_pii(turn.get("text", ""))
+            messages.append({"role": role, "content": text})
         messages.append(
             {"role": "user", "content": f"以下是知识库检索到的来源：\n\n{context}\n\n问题：{question}"}
         )
@@ -106,16 +116,20 @@ class GLMProvider(LLMProvider):
         return resp.choices[0].message.content or ""
 
     async def answer_stream(
-        self, question: str, context: str, history: list[dict] | None = None
+        self, question: str, context: str, history: list[dict] | None = None,
+        *, style: QaStyle = "default",
     ) -> AsyncIterator[str]:
         """流式问答：用 stream=True 逐块 yield 生成内容，前端逐字渲染。
 
         消息拼装与非流式 answer 完全一致，区别只在 stream=True 与逐块取出 delta。
         """
-        messages: list[dict] = [{"role": "system", "content": QA_SYSTEM}]
+        question, _ = guardrails.mask_pii(question)
+        context, _ = guardrails.mask_pii(context)
+        messages: list[dict] = [{"role": "system", "content": build_qa_system(style)}]
         for turn in history or []:
             role = "assistant" if turn.get("role") == "assistant" else "user"
-            messages.append({"role": role, "content": turn.get("text", "")})
+            text, _ = guardrails.mask_pii(turn.get("text", ""))
+            messages.append({"role": role, "content": text})
         messages.append(
             {"role": "user", "content": f"以下是知识库检索到的来源：\n\n{context}\n\n问题：{question}"}
         )
@@ -165,6 +179,7 @@ class GLMProvider(LLMProvider):
         blocks = []
         for i, s in enumerate(sources, 1):
             excerpt = (s.get("content") or s.get("summary") or "")[:1200]
+            excerpt, _ = guardrails.mask_pii(excerpt)
             blocks.append(f"[来源{i}] note_id={s['id']}\n标题：{s.get('title','')}\n摘要：{s.get('summary','')}\n正文节选：{excerpt}")
         user = f"主题：{topic}\n\n来源：\n\n" + "\n\n".join(blocks)
         resp = _get_client().chat.completions.create(
@@ -185,6 +200,64 @@ class GLMProvider(LLMProvider):
         text = resp.choices[0].message.content or ""
         return WikiCompileResult.model_validate_json(text)
 
+    def generate_qa(self, content: str, *, title_hint: str = "") -> QaGenResult:
+        """文档→Q&A 生成：基于一篇笔记正文拟若干问答对，JSON 输出。"""
+        user = content if not title_hint else f"标题提示：{title_hint}\n\n正文：\n{content}"
+        user, _ = guardrails.mask_pii(user)
+        resp = _get_client().chat.completions.create(
+            model=settings.chat_model,
+            max_tokens=4096,
+            temperature=1.0,
+            messages=[
+                {"role": "system", "content": QA_GEN_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_object"},
+            extra_body={
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "max",
+            },
+        )
+        usage.record_call(getattr(resp, "usage", None))
+        text = resp.choices[0].message.content or ""
+        return QaGenResult.model_validate_json(text)
+
+    def detect_conflict(self, left: str, right: str) -> ConflictAssessment:
+        resp = _get_client().chat.completions.create(
+            model=settings.chat_model,
+            max_tokens=512,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": (
+                    "判断两段知识是否针对同一事实给出无法同时成立的结论。仅语气、侧重点或时间不同"
+                    "不算冲突。输出 JSON：{\"conflict\":bool,\"topic\":str,\"explanation\":str}。"
+                )},
+                {"role": "user", "content": f"段落A：\n{left[:2000]}\n\n段落B：\n{right[:2000]}"},
+            ],
+            response_format={"type": "json_object"},
+        )
+        usage.record_call(getattr(resp, "usage", None))
+        return ConflictAssessment.model_validate_json(resp.choices[0].message.content or "{}")
+
+    def plan_queries(self, question: str) -> QueryPlan:
+        resp = _get_client().chat.completions.create(
+            model=settings.chat_model,
+            max_tokens=512,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": (
+                    "把复杂问题拆成最多3个互补、可独立检索的中文子问题。简单问题保持1个。"
+                    "输出 JSON：{\"queries\":[\"...\"]}。不得引入原问题没有的主题。"
+                )},
+                {"role": "user", "content": question},
+            ],
+            response_format={"type": "json_object"},
+        )
+        usage.record_call(getattr(resp, "usage", None))
+        plan = QueryPlan.model_validate_json(resp.choices[0].message.content or "{}")
+        plan.queries = [q.strip() for q in plan.queries if q.strip()][:3] or [question]
+        return plan
+
 
 # ---------- Embedding ----------
 
@@ -194,6 +267,7 @@ class GLMEmbedder(EmbeddingProvider):
     def embed(self, text: str) -> list[float]:
         """把一段文本转成定长向量。空文本返回零向量，避免入库报错。"""
         text = (text or "").strip()
+        text, _ = guardrails.mask_pii(text)
         if not text:
             return [0.0] * settings.embed_dim
         # Embedding 模型有输入长度上限，超长就截断（入库向量用摘要+正文前段足够）

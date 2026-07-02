@@ -12,11 +12,16 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from urllib.parse import urlparse
 
 from db import pool
-from services import chunker, embedder, es, fetcher, llm, storage
+from services import chunker, embedder, es, fetcher, llm, quota, storage, usage
+from services.logging import get_logger
+
+log = get_logger("ingest")
 
 # 文件扩展名 → notes.source_type（入队时就定下来，前端角标立刻正确）
 _EXT_SOURCE_TYPE = {
@@ -37,90 +42,158 @@ _SOURCE_EXT = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "image": "png"}
 
 # ---------- 同步入口（脚本 / 迁移） ----------
 
-def ingest_url(url: str) -> uuid.UUID:
-    note_id = enqueue_url(url)
-    run(note_id, url=url)
+def ingest_url(url: str, *, space_id=None, created_by=None) -> uuid.UUID:
+    note_id = enqueue_url(url, space_id=space_id, created_by=created_by)
+    run(note_id, url=url, space_id=space_id, actor_id=created_by)
     return note_id
 
 
-def ingest_file(data: bytes, filename: str) -> uuid.UUID:
-    note_id = enqueue_file(filename, len(data))
-    run(note_id, data=data, filename=filename)
+def ingest_file(data: bytes, filename: str, *, space_id=None, created_by=None) -> uuid.UUID:
+    note_id = enqueue_file(
+        filename, len(data), data=data, space_id=space_id, created_by=created_by
+    )
+    run(note_id, data=data, filename=filename, space_id=space_id, actor_id=created_by)
     return note_id
 
 
 # ---------- 拆两步，给 HTTP 接口用 ----------
 
-def enqueue_url(url: str) -> uuid.UUID:
-    """建一条 pending 笔记 + 一条 ingest job，返回 note_id；处理交给 run()。"""
-    note_id = _create_pending(url=url, source_type="url")
-    _create_job(note_id, title=url, sub=urlparse(url).netloc or url)
+def enqueue_url(url: str, *, space_id=None, created_by=None) -> uuid.UUID:
+    """建一条 pending 笔记 + 一条 ingest job，返回 note_id；处理交给 run()。
+
+    space_id/created_by（M2）：归属空间 + 入库者。脚本/迁移不传则留 NULL。
+    """
+    note_id = _create_pending(url=url, source_type="url", space_id=space_id, created_by=created_by)
+    _create_job(
+        note_id,
+        title=url,
+        sub=urlparse(url).netloc or url,
+        payload={
+            "kind": "url",
+            "url": url,
+            "actor_id": str(created_by) if created_by else None,
+            "space_id": str(space_id) if space_id else None,
+        },
+    )
     return note_id
 
 
-def enqueue_file(filename: str, size_bytes: int = 0) -> uuid.UUID:
+def enqueue_file(
+    filename: str,
+    size_bytes: int = 0,
+    *,
+    data: bytes,
+    space_id=None,
+    created_by=None,
+) -> uuid.UUID:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     source_type = _EXT_SOURCE_TYPE.get(ext, "manual")
-    note_id = _create_pending(url=f"file://{filename}", source_type=source_type)
-    _create_job(note_id, title=filename, sub=_human_size(size_bytes))
+    note_id = _create_pending(url=f"file://{filename}", source_type=source_type, space_id=space_id, created_by=created_by)
+    # 在返回 202 前先持久化上传内容；worker 重启后可从对象存储恢复任务。
+    staged_key = f"{note_id}/raw.{ext or 'bin'}"
+    storage.get_store().put(staged_key, data)
+    _create_job(
+        note_id,
+        title=filename,
+        sub=_human_size(size_bytes),
+        payload={
+            "kind": "file",
+            "filename": filename,
+            "staged_key": staged_key,
+            "actor_id": str(created_by) if created_by else None,
+            "space_id": str(space_id) if space_id else None,
+        },
+    )
     return note_id
 
 
-def run(note_id: uuid.UUID, **fetch_kwargs) -> None:
-    """后台执行：抓取 → 提炼 → 向量化 → 写库。供 BackgroundTasks 调用。"""
-    _process(note_id, **fetch_kwargs)
+def run(note_id: uuid.UUID, *, actor_id: uuid.UUID | None = None, space_id=None, **fetch_kwargs) -> None:
+    """后台执行：抓取 → 提炼 → 向量化 → 写库。供独立 job_runner 调用。
+
+    actor_id 是触发入库的用户；HTTP 接口传入后，本次入库消耗的 GLM token 会
+    记进该用户的 token_usage（用量看板可见、并计入其每日额度）。脚本/迁移
+    调用不传，则不记账。
+
+    space_id 用于 ES 索引写入（notes 表的 space_id 在 enqueue_* 时已写入）；
+    若 enqueue 未传（脚本场景）则从库里读已存的 space_id。
+    """
+    _process(note_id, actor_id=actor_id, space_id=space_id, **fetch_kwargs)
 
 
 # ---------- 主流程 ----------
 
-def _process(note_id: uuid.UUID, **fetch_kwargs) -> None:
+def _process(note_id: uuid.UUID, *, actor_id: uuid.UUID | None = None, space_id=None, **fetch_kwargs) -> None:
+    log.info("ingest start", extra={"event": "ingest_start", "note_id": str(note_id), "actor_id": str(actor_id) if actor_id else None})
     try:
         _mark_status(note_id, "processing")
         _update_job(note_id, status="running", stage="fetch", progress=10)
 
-        result = fetcher.fetch(**fetch_kwargs)
-        if not result.content.strip():
-            raise ValueError("抓取到的正文为空")
-        # 抓到真实标题后回填到 job 卡片
-        _update_job(note_id, title=result.title, stage="extract", progress=35)
+        # 用量采集包住所有 LLM 调用（analyze / embed / 图片入库的 describe_image）。
+        # ContextVar 在本线程内有效：fetch→analyze→embed 都在此线程跑，
+        # provider 调用后 record_call 累加到 u；结束按 actor_id 落 token_usage。
+        with usage.collect() as u:
+            result = fetcher.fetch(**fetch_kwargs)
+            if not result.content.strip():
+                raise ValueError("抓取到的正文为空")
+            # 抓到真实标题后回填到 job 卡片
+            _update_job(note_id, title=result.title, stage="extract", progress=35)
 
-        # 原始文件落对象存储（URL 来源无 raw_bytes，跳过）
-        raw_path = _store_raw(note_id, result)
+            # 原始文件落对象存储（URL 来源无 raw_bytes，跳过）
+            raw_path = _store_raw(note_id, result)
 
-        _update_job(note_id, stage="refine", progress=55)
-        analysis = llm.analyze(result.content, title_hint=result.title)
+            _update_job(note_id, stage="refine", progress=55)
+            analysis = llm.analyze(result.content, title_hint=result.title)
 
-        # 长文档切块：逐块向量化写入 note_chunks（语义检索主召回路）
-        _update_job(note_id, stage="chunk", progress=60)
-        chunks = chunker.split(result.content)
-        chunk_embeddings = [embedder.embed(c) for c in chunks]
+            # 长文档切块：逐块向量化写入 note_chunks（语义检索主召回路）
+            _update_job(note_id, stage="chunk", progress=60)
+            chunks = chunker.split(result.content)
+            chunk_embeddings = [embedder.embed(c) for c in chunks]
 
-        _update_job(note_id, stage="embedding", progress=75)
-        # 文档级向量用「摘要 + 正文前段」，作概览/降级；chunk 级是主召回
-        vector = embedder.embed(f"{analysis.summary}\n\n{result.content[:2000]}")
+            _update_job(note_id, stage="embedding", progress=75)
+            # 文档级向量用「摘要 + 正文前段」，作概览/降级；chunk 级是主召回
+            vector = embedder.embed(f"{analysis.summary}\n\n{result.content[:2000]}")
+
+        # 入库是 admin 写操作：把本次 GLM 用量记到触发者账上（看板可见 + 计额度）。
+        # 脚本/迁移调用无 actor_id，不记账（token_usage.user_id 有 FK 约束，None 写不进）。
+        if actor_id is not None:
+            quota.record_usage(actor_id, "ingest", u)
 
         _update_job(note_id, stage="store", progress=90)
-        _save(note_id, result, analysis, vector, raw_path)
+        _save(note_id, result, analysis, vector, raw_path, space_id=space_id)
         _save_chunks(note_id, chunks, chunk_embeddings)
         _link_entities(note_id, analysis.entities)
 
         _mark_status(note_id, "done")
         _update_job(note_id, status="done", stage="done", progress=100)
+        log.info("ingest done", extra={"event": "ingest_done", "note_id": str(note_id)})
     except Exception as exc:  # noqa: BLE001 — 入库失败要落库，不能吞
         _fail(note_id, str(exc))
         _update_job(note_id, status="failed", error=str(exc))
+        log.exception("ingest failed", extra={"event": "ingest_failed", "note_id": str(note_id)})
         raise
 
 
 # ---------- notes 读写 ----------
 
-def _create_pending(*, url: str, source_type: str) -> uuid.UUID:
+def _create_pending(*, url: str, source_type: str, space_id=None, created_by=None) -> uuid.UUID:
     note_id = uuid.uuid4()
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO notes (id, title, url, source_type, ingest_status) "
-            "VALUES (%s, %s, %s, %s, 'pending')",
-            (note_id, "（抓取中…）", url, source_type),
+            "INSERT INTO notes (id, title, url, source_type, ingest_status, space_id, created_by) "
+            "VALUES (%s, %s, %s, %s, 'pending', %s, %s)",
+            (note_id, "（抓取中…）", url, source_type, space_id, created_by),
+        )
+        source_row = conn.execute(
+            """
+            INSERT INTO source_documents(space_id,source_type,locator,display_name)
+            VALUES(%s,%s,%s,%s)
+            ON CONFLICT(space_id,locator) DO UPDATE SET updated_at=NOW()
+            RETURNING id
+            """,
+            (space_id, source_type, url or f"note://{note_id}", url),
+        ).fetchone()
+        conn.execute(
+            "UPDATE notes SET source_document_id=%s WHERE id=%s", (source_row[0], note_id)
         )
     return note_id
 
@@ -134,7 +207,7 @@ def _store_raw(note_id, result) -> str | None:
     return storage.get_store().put(key, result.raw_bytes)
 
 
-def _save(note_id, result, analysis, vector, raw_path: str | None = None) -> None:
+def _save(note_id, result, analysis, vector, raw_path: str | None = None, *, space_id=None) -> None:
     with pool.connection() as conn:
         conn.execute(
             """
@@ -161,6 +234,18 @@ def _save(note_id, result, analysis, vector, raw_path: str | None = None) -> Non
                 note_id,
             ),
         )
+        # space_id 未传（脚本场景）时从已写好的笔记里读，保证 ES 索引带上空间
+        if space_id is None:
+            row = conn.execute("SELECT space_id FROM notes WHERE id = %s", (note_id,)).fetchone()
+            space_id = row[0] if row else None
+        conn.execute(
+            """
+            UPDATE source_documents SET display_name=%s,content_hash=%s,status='active',
+                error_msg=NULL,updated_at=NOW()
+            WHERE id=(SELECT source_document_id FROM notes WHERE id=%s)
+            """,
+            (result.title, hashlib.sha256(result.content.encode("utf-8")).hexdigest(), note_id),
+        )
     # 同步索引到 ES（ik 中文分词），关键词检索从这里召回；ES 不可达时静默跳过
     es.index_note(
         str(note_id),
@@ -169,6 +254,7 @@ def _save(note_id, result, analysis, vector, raw_path: str | None = None) -> Non
         content=result.content,
         tags=analysis.tags or [],
         source_type=result.source_type,
+        space_id=str(space_id) if space_id else "",
     )
 
 
@@ -233,12 +319,12 @@ def _fail(note_id, msg: str) -> None:
 
 # ---------- jobs 读写（驱动入库队列卡片） ----------
 
-def _create_job(note_id, *, title: str, sub: str) -> None:
+def _create_job(note_id, *, title: str, sub: str, payload: dict) -> None:
     with pool.connection() as conn:
         conn.execute(
-            "INSERT INTO jobs (job_type, note_id, title, sub, status, stage, progress) "
-            "VALUES ('ingest', %s, %s, %s, 'queued', 'queued', 0)",
-            (note_id, title, sub),
+            "INSERT INTO jobs (job_type, note_id, payload, title, sub, status, stage, progress) "
+            "VALUES ('ingest', %s, %s::jsonb, %s, %s, 'queued', 'queued', 0)",
+            (note_id, json.dumps(payload), title, sub),
         )
 
 
@@ -275,7 +361,9 @@ def _update_job(
     vals.append(note_id)
     with pool.connection() as conn:
         conn.execute(
-            f"UPDATE jobs SET {', '.join(sets)} WHERE note_id = %s AND job_type = 'ingest'",
+            f"UPDATE jobs SET {', '.join(sets)} "
+            "WHERE note_id = %s AND job_type = 'ingest' "
+            "AND status IN ('queued', 'running')",
             vals,
         )
 

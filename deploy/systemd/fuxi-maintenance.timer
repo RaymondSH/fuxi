@@ -1,0 +1,11 @@
+[Unit]
+Description=Run fuxi M3 maintenance hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target
+

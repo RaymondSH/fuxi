@@ -16,3 +16,5 @@ langchain-text-splitters>=0.3.0  # 文档分块（RecursiveCharacterTextSplitter
 pyjwt>=2.9.0             # 登录签发/解码 JWT（HS256）
 bcrypt>=4.1.0            # 密码哈希（直接用 bcrypt，弃 passlib：后者已停更且与 bcrypt>=4.1 不兼容）
 email-validator>=2.1.0   # pydantic EmailStr 校验（登录/建号邮箱）
+mcp>=1.28                # MCP server（FastMCP，暴露知识库检索/问答/图谱/主题页为 Agent 可调用工具）
+cryptography>=44.0       # M4 连接器凭据 Fernet 加密（主密钥仅在环境变量）

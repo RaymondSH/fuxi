@@ -66,6 +66,27 @@ class WikiCompileResult(BaseModel):
     summary: str = Field(default="", description="一句话概括本主题页")
 
 
+class QaGenItem(BaseModel):
+    """文档→Q&A 生成的一条产物：一个问题 + 一个回答。"""
+    question: str = Field(description="基于该笔记内容拟出的自问")
+    answer: str = Field(description="依据笔记内容的自答，2-4 句")
+
+
+class QaGenResult(BaseModel):
+    """文档→Q&A 生成产物：多条问答对。回灌检索后写入 generated_qa。"""
+    items: list[QaGenItem] = Field(default_factory=list)
+
+
+class ConflictAssessment(BaseModel):
+    conflict: bool = False
+    topic: str = ""
+    explanation: str = ""
+
+
+class QueryPlan(BaseModel):
+    queries: list[str] = Field(default_factory=list)
+
+
 # IngestResult 的 JSON schema 文本，嵌进 system 提示让模型按结构输出
 _INGEST_SCHEMA_HINT = """按以下 JSON 结构输出，字段含义：
 {
@@ -94,6 +115,30 @@ QA_SYSTEM = """你是知识库问答助手。只依据用户提供的「来源�
 - 回答要点明依据，可在句末用 [n] 形式标注来源序号；
 - 来源不足以回答时，如实说明，不要编造；
 - 用简洁中文，必要处可用 Markdown 加粗 / 列表。"""
+
+# 角色化输出风格：在默认 QA_SYSTEM 之上叠加风格约束，由 build_qa_system(style) 拼接。
+# 保持默认的事实约束（只依据来源、不编造），只改表达风格。
+QaStyle = Literal["default", "executive", "technical", "eli5"]
+
+_QA_STYLE_HINTS: dict[str, str] = {
+    "executive": (
+        "\n\n【输出风格：高管简报】面向决策者，先给一句话结论，再给 2-3 条要点；"
+        "省略技术细节与实现过程；用商业语言，强调影响与取舍。"
+    ),
+    "technical": (
+        "\n\n【输出风格：技术说明】面向工程师，给出原理、机制与关键参数；"
+        "可使用专业术语，必要时分步骤说明；结论可后置。"
+    ),
+    "eli5": (
+        "\n\n【输出风格：通俗讲解】面向非专业读者，用日常类比解释，"
+        "避免术语；句子要短，能不用的专有名词就不用。"
+    ),
+}
+
+
+def build_qa_system(style: QaStyle = "default") -> str:
+    """按输出风格拼问答 system 提示：默认事实约束 + 风格叠加。"""
+    return QA_SYSTEM + _QA_STYLE_HINTS.get(style, "")
 
 # 主题页编译用的 system 提示
 _WIKI_SCHEMA_HINT = """按以下 JSON 结构输出：
@@ -124,6 +169,25 @@ WIKI_COMPILE_SYSTEM = f"""你是知识库的主题页编辑。给你多篇笔记
 {_WIKI_SCHEMA_HINT}"""
 
 
+# 文档→Q&A 生成用的 system 提示
+_QA_GEN_SCHEMA_HINT = """按以下 JSON 结构输出：
+{
+  "items": [
+    {"question": "针对该笔记内容的自问", "answer": "依据笔记内容的自答，2-4 句"}
+  ]
+}"""
+
+QA_GEN_SYSTEM = f"""你是知识库的问答标注员。给你一篇笔记的正文，请你站在「未来读者可能想问」的角度，
+生成 3-5 个高质量的问答对，用于沉淀进检索库、在被问到同义问题时直接回灌复用：
+
+1. 问题要具体、能从该笔记内容里找到明确答案（避免泛泛而谈）；
+2. 回答严格依据笔记内容，2-4 句，不要编造笔记里没有的信息；
+3. 覆盖该笔记的主要要点，角度互补，不要重复；
+4. 用简洁中文。
+
+{_QA_GEN_SCHEMA_HINT}"""
+
+
 class LLMProvider(ABC):
     """LLM 提供者抽象：入库提炼 / 问答 / 图片描述三类调用。
 
@@ -135,11 +199,16 @@ class LLMProvider(ABC):
         """对一篇正文做摘要+要点+标签+实体提取，返回结构化结果。"""
 
     @abstractmethod
-    def answer(self, question: str, context: str, history: list[dict] | None = None) -> str:
-        """基于检索到的来源（context）生成带依据的回答。history 为多轮上下文。"""
+    def answer(self, question: str, context: str, history: list[dict] | None = None,
+               *, style: QaStyle = "default") -> str:
+        """基于检索到的来源（context）生成带依据的回答。history 为多轮上下文。
+
+        style 控制输出风格（default/executive/technical/eli5）。
+        """
 
     def answer_stream(
-        self, question: str, context: str, history: list[dict] | None = None
+        self, question: str, context: str, history: list[dict] | None = None,
+        *, style: QaStyle = "default",
     ) -> AsyncIterator[str]:
         """流式问答：逐块 yield 生成内容（token 级）。默认抛 NotImplementedError，
         子类按需实现；未实现的 provider 调用方回退到非流式 answer。"""
@@ -158,6 +227,21 @@ class LLMProvider(ABC):
         默认抛 NotImplementedError，子类按需实现。
         """
         raise NotImplementedError("当前 provider 未实现主题页编译")
+
+    def generate_qa(self, content: str, *, title_hint: str = "") -> QaGenResult:
+        """文档→Q&A 生成：基于一篇笔记正文拟若干问答对，回灌进检索库。
+
+        默认抛 NotImplementedError，子类按需实现。
+        """
+        raise NotImplementedError("当前 provider 未实现 Q&A 生成")
+
+    def detect_conflict(self, left: str, right: str) -> ConflictAssessment:
+        """判断两段知识是否对同一事实给出冲突结论。"""
+        raise NotImplementedError("当前 provider 未实现冲突检测")
+
+    def plan_queries(self, question: str) -> QueryPlan:
+        """把复杂问题拆成有限个可检索子问题。"""
+        raise NotImplementedError("当前 provider 未实现问题拆解")
 
 
 class EmbeddingProvider(ABC):

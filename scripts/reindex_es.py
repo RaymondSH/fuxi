@@ -24,14 +24,14 @@ def main() -> None:
         rows = conn.execute(
             """
             SELECT id, title, COALESCE(summary,''), COALESCE(content,''),
-                   tags, source_type
+                   tags, source_type, space_id::text
             FROM notes
-            WHERE ingest_status = 'done'
+            WHERE ingest_status = 'done' AND deleted_at IS NULL
             """
         ).fetchall()
 
     ok, fail = 0, 0
-    for nid, title, summary, content, tags, source_type in rows:
+    for nid, title, summary, content, tags, source_type, space_id in rows:
         try:
             es.index_note(
                 str(nid),
@@ -40,6 +40,7 @@ def main() -> None:
                 content=content,
                 tags=tags or [],
                 source_type=source_type,
+                space_id=space_id,
             )
             ok += 1
         except Exception as exc:  # noqa: BLE001

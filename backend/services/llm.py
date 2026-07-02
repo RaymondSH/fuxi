@@ -13,9 +13,13 @@ from collections.abc import AsyncIterator
 
 from services import providers
 from services.providers.base import (
+    ConflictAssessment,
     Entity,
     EntityType,
     IngestResult,
+    QaGenResult,
+    QueryPlan,
+    QaStyle,
     WikiCompileResult,
 )
 
@@ -25,16 +29,18 @@ def analyze(content: str, *, title_hint: str = "") -> IngestResult:
     return providers.get_llm().analyze(content, title_hint=title_hint)
 
 
-def answer(question: str, context: str, history: list[dict] | None = None) -> str:
+def answer(question: str, context: str, history: list[dict] | None = None,
+           *, style: QaStyle = "default") -> str:
     """基于检索到的来源（context）生成带依据的回答。history 为多轮上下文。"""
-    return providers.get_llm().answer(question, context, history)
+    return providers.get_llm().answer(question, context, history, style=style)
 
 
 async def answer_stream(
-    question: str, context: str, history: list[dict] | None = None
+    question: str, context: str, history: list[dict] | None = None,
+    *, style: QaStyle = "default",
 ) -> AsyncIterator[str]:
     """流式问答：逐块 yield 生成内容，供 SSE 推给前端逐字渲染。"""
-    async for chunk in providers.get_llm().answer_stream(question, context, history):
+    async for chunk in providers.get_llm().answer_stream(question, context, history, style=style):
         yield chunk
 
 
@@ -48,14 +54,31 @@ def compile_wiki(sources: list[dict], topic: str) -> WikiCompileResult:
     return providers.get_llm().compile_wiki(sources, topic)
 
 
+def generate_qa(content: str, *, title_hint: str = "") -> QaGenResult:
+    """文档→Q&A 生成：基于一篇笔记正文拟若干问答对，回灌进检索库。"""
+    return providers.get_llm().generate_qa(content, title_hint=title_hint)
+
+
+def detect_conflict(left: str, right: str) -> ConflictAssessment:
+    return providers.get_llm().detect_conflict(left, right)
+
+
+def plan_queries(question: str) -> QueryPlan:
+    return providers.get_llm().plan_queries(question)
+
+
 __all__ = [
     "Entity",
     "EntityType",
     "IngestResult",
+    "QaGenResult",
     "WikiCompileResult",
     "analyze",
     "answer",
     "answer_stream",
     "compile_wiki",
     "describe_image",
+    "generate_qa",
+    "detect_conflict",
+    "plan_queries",
 ]

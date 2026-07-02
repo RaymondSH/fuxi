@@ -14,14 +14,14 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
 import httpx
 
 from config import settings
+from services.logging import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger("es")
 
 _INDEX = "notes_v1"
 
@@ -35,6 +35,9 @@ _MAPPING = {
         "content": {"type": "text", "analyzer": "ik_max_word", "search_analyzer": "ik_smart"},
         "tags": {"type": "keyword"},
         "source_type": {"type": "keyword"},
+        # M2：空间隔离。space_id 走 keyword + filter（硬过滤，走缓存，比 must 权重高，适合 ACL）。
+        # 迁移脚本会重建索引灌入此字段；历史无 space 的文档由迁移回填 default。
+        "space_id": {"type": "keyword"},
     }
 }
 
@@ -81,8 +84,13 @@ def index_note(
     content: str,
     tags: list[str],
     source_type: str = "",
+    space_id: str = "",
 ) -> None:
-    """把一篇笔记索引进 ES（用 note_id 做 _id，重复索引即覆盖）。ES 不可达时静默丢弃。"""
+    """把一篇笔记索引进 ES（用 note_id 做 _id，重复索引即覆盖）。ES 不可达时静默丢弃。
+
+    space_id 空间归属（M2）：留空表示文档尚未归入空间（历史兼容，检索时会按传入的
+    可见空间集合过滤，留空文档需调用方自行决定是否纳入）。
+    """
     if not _is_enabled():
         return
     doc = {
@@ -92,6 +100,7 @@ def index_note(
         "content": content or "",
         "tags": tags or [],
         "source_type": source_type,
+        "space_id": space_id,
     }
     try:
         _get_client().put(f"/{_INDEX}/_doc/{note_id}", content=json.dumps(doc))
@@ -109,12 +118,22 @@ def delete_note(note_id: str) -> None:
         log.warning("es: delete_note %s 失败：%s", note_id, exc)
 
 
-def search(q: str, tags: list[str] | None = None, limit: int = 100) -> list[tuple[str, float]]:
+def search(
+    q: str,
+    tags: list[str] | None = None,
+    limit: int = 100,
+    space_ids: list[str] | None = None,
+) -> list[tuple[str, float]]:
     """关键词检索：返回 [(note_id, score), ...]，按相关度降序。
 
     ES 不可达 / 未配置时返回空列表，调用方据此回退 ILIKE。
+
+    space_ids（M2）：None 仅表示 sysadmin 全可见；空列表表示无可见空间并直接返回空。
+    非空列表走 ES filter 硬过滤。
     """
     if not _is_enabled() or not q.strip():
+        return []
+    if space_ids == []:
         return []
     # multi_match 跨 title/summary/content；title 权重最高（^3），summary 次之（^2）。
     body: dict[str, Any] = {
@@ -137,6 +156,9 @@ def search(q: str, tags: list[str] | None = None, limit: int = 100) -> list[tupl
     }
     if tags:
         body["query"]["bool"]["filter"].append({"terms": {"tags": tags}})
+    # M2 空间 ACL：filter 硬过滤（ES 走缓存，性能优于 must）
+    if space_ids:
+        body["query"]["bool"]["filter"].append({"terms": {"space_id": space_ids}})
     try:
         resp = _get_client().post(f"/{_INDEX}/_search", content=json.dumps(body))
         resp.raise_for_status()

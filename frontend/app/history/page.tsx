@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPut } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 
 interface SearchHistoryItem {
@@ -84,6 +84,10 @@ export default function HistoryPage() {
                 <div className="mt-1 font-mono text-[11px] text-muted2">
                   {item.source_count} 条来源
                 </div>
+                {!allUsers && <div className="mt-2 flex gap-3 text-xs text-muted2">
+                  <button onClick={() => apiPut(`/qa/history/${item.id}/feedback`, {rating:"up"})}>有帮助</button>
+                  <button onClick={() => apiPut(`/qa/history/${item.id}/feedback`, {rating:"down"})}>没帮助</button>
+                </div>}
               </li>
             ))}
           </ul>

@@ -8,7 +8,7 @@
 CREATE TABLE users (
     id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email             TEXT UNIQUE NOT NULL,
-    password_hash     TEXT NOT NULL,                 -- bcrypt（passlib）
+    password_hash     TEXT NOT NULL,                 -- bcrypt（直接用 bcrypt 库，弃 passlib）
     display_name      TEXT,
     role              TEXT NOT NULL DEFAULT 'member'  -- 'member'|'admin'
                       CHECK (role IN ('member', 'admin')),
@@ -29,7 +29,7 @@ CREATE TABLE token_usage (
     id                BIGSERIAL PRIMARY KEY,
     user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     usage_day         DATE NOT NULL,                 -- 按 USAGE_TZ 算的自然日
-    operation         TEXT NOT NULL,                 -- 'qa'|'qa_stream'|'search_semantic'|'ingest_refine'|'ingest_embed'
+    operation         TEXT NOT NULL,                 -- 'qa'|'qa_stream'|'search_semantic'|'ingest'（入库 refine/embed/describe_image 合计）
     prompt_tokens     INT NOT NULL DEFAULT 0,
     completion_tokens INT NOT NULL DEFAULT 0,
     total_tokens      INT NOT NULL DEFAULT 0,

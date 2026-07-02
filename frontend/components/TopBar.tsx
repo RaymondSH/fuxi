@@ -7,10 +7,14 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import SpaceSwitcher from "@/components/SpaceSwitcher";
+import { canAct, useSpaces } from "@/components/SpacesProvider";
 
 export default function TopBar() {
   const router = useRouter();
   const { user } = useAuth();
+  const { spaces } = useSpaces();
+  const canIngest = user?.role === "admin" || spaces.some((s) => canAct(s.my_role, "editor"));
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -56,9 +60,10 @@ export default function TopBar() {
       </form>
 
       <div className="ml-auto flex items-center gap-3">
-        {user?.role === "admin" && (
+        <SpaceSwitcher />
+        {canIngest && (
           <Link
-            href="/admin/ingest"
+            href="/ingest"
             className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-cream transition-opacity hover:opacity-90"
           >
             <span className="text-base leading-none">＋</span>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import AuthProvider from "@/components/AuthProvider";
 import AppShell from "@/components/AppShell";
+import SpacesProvider from "@/components/SpacesProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,9 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         <AuthProvider>
-          <AppShell>{children}</AppShell>
+          <SpacesProvider>
+            <AppShell>{children}</AppShell>
+          </SpacesProvider>
         </AuthProvider>
       </body>
     </html>

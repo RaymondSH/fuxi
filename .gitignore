@@ -29,6 +29,16 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# ── Expo / React Native（mobile/）──
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
 # ── Docker（本地卷 / 构建产物，不进版本库）──
 deploy/es/es-data/
 *.local

@@ -27,6 +27,12 @@ def main() -> int:
         print("密码至少 6 位", file=sys.stderr)
         return 1
 
+    try:
+        auth.validate_password(args.password)
+    except Exception as exc:  # validate_password 抛 HTTPException(400)
+        print(f"密码强度不足：{getattr(exc, 'detail', exc)}", file=sys.stderr)
+        return 1
+
     pw_hash = auth.hash_password(args.password)
     with pool.connection() as conn:
         row = conn.execute(

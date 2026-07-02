@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import TypeBadge from "@/components/TypeBadge";
 import { layoutGraph, nodeRadius, type PositionedNode } from "@/lib/forceLayout";
 import { apiGet } from "@/lib/api";
@@ -23,7 +24,9 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "company", label: "公司" },
 ];
 
-export default function GraphPage() {
+function GraphInner() {
+  const searchParams = useSearchParams();
+  const targetEntity = searchParams.get("entity"); // 从笔记详情页实体跳来时带上
   const [filter, setFilter] = useState("all");
   const [data, setData] = useState<GraphData | null>(null);
   const [selected, setSelected] = useState<EntityDetail | null>(null);
@@ -47,6 +50,17 @@ export default function GraphPage() {
   function pickEntity(id: string) {
     apiGet<EntityDetail>(`/graph/entities/${id}`).then(setSelected);
   }
+
+  // 从笔记详情页带 entity 参数跳来时，自动选中该实体（拉详情 + 展开侧栏）。
+  // 仅当节点数据就绪且目标实体在当前过滤结果里时触发，避免无效请求。
+  const targetPicked = useRef(false);
+  useEffect(() => {
+    if (!targetEntity || !data || targetPicked.current) return;
+    if (data.nodes.some((n) => n.id === targetEntity)) {
+      targetPicked.current = true;
+      pickEntity(targetEntity);
+    }
+  }, [targetEntity, data]);
 
   const selectedId = selected?.id;
 
@@ -195,5 +209,14 @@ export default function GraphPage() {
         )}
       </aside>
     </div>
+  );
+}
+
+// useSearchParams 需在 Suspense 边界内（Next 16 要求），否则 build 会报兜底错误
+export default function GraphPage() {
+  return (
+    <Suspense>
+      <GraphInner />
+    </Suspense>
   );
 }

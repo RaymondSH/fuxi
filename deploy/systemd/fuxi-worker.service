@@ -1,0 +1,15 @@
+[Unit]
+Description=fuxi persistent jobs worker
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fuxi/backend
+EnvironmentFile=/opt/fuxi/backend/.env
+ExecStart=/bin/bash -lc "/opt/fuxi/backend/.venv/bin/python -m workers.job_runner"
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

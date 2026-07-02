@@ -1,0 +1,9 @@
+[Unit]
+Description=fuxi M3/M4 maintenance enqueue
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/fuxi
+EnvironmentFile=/opt/fuxi/backend/.env
+ExecStart=/bin/bash -lc 'PYTHONPATH=backend backend/.venv/bin/python scripts/enqueue_m3_maintenance.py'

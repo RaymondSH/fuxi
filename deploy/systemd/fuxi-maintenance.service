@@ -6,4 +6,4 @@ After=network.target postgresql.service
 Type=oneshot
 WorkingDirectory=/opt/fuxi
 EnvironmentFile=/opt/fuxi/backend/.env
-ExecStart=/bin/bash -lc 'PYTHONPATH=backend backend/.venv/bin/python scripts/enqueue_m3_maintenance.py'
+ExecStart=/bin/bash -lc 'PYTHONPATH=backend backend/.venv/bin/python scripts/fuxi.py maintenance'

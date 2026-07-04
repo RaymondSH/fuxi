@@ -2,7 +2,7 @@
 
 一个功能完备的在线 AI 知识库系统。用户登录后入库各类素材（链接、PDF、Word、Excel、图片），系统用智谱 GLM 自动提炼摘要、要点、标签和实体，支持全文 + 语义检索、知识图谱、RAG 问答、Wiki 编译；带用户鉴权、按用户隔离历史、每日 token 配额与管理后台，并按「空间」隔离多团队内容。
 
-> 前身是本地个人知识库 [my-wiki](../my-wiki)（纯 Markdown 文件），fuxi 把它升级为可支撑 GB 级数据、多用户检索的在线系统。当前版本 **v0.8.0**，已部署上线（见 [docs/deploy.md](docs/deploy.md)）。
+> 前身是本地个人知识库 [my-wiki](../my-wiki)（纯 Markdown 文件），fuxi 把它升级为可支撑 GB 级数据、多用户检索的在线系统。当前版本 **v0.8.0**，已部署上线（见 [docs/operations.md](docs/operations.md)）。
 
 ---
 
@@ -64,8 +64,8 @@ AI Pipeline           Ingest Worker · RAG Engine · Graph Builder · Compile Wo
 
 ```
 fuxi/
-├── README.md / CLAUDE.md / PROGRESS.md     # 介绍 / 工作规范 / 进度
-├── docs/                                    # api-contract / auth-design / spaces-design / mcp / deploy
+├── README.md / AGENTS.md / CLAUDE.md / PROGRESS.md
+├── docs/                                    # api-contract / architecture / operations
 ├── sql/                                     # 数据库 schema（00 入口按序执行 01~33）
 │   ├── 01_extensions … 06_jobs              # 扩展 / 笔记 / 图谱 / wiki / 历史 / 队列
 │   ├── 07_chunks.sql                        # 文档分块表 note_chunks
@@ -93,8 +93,8 @@ fuxi/
 │   ├── components/      AppShell · AuthProvider · SpacesProvider · Sidebar · TopBar · SpaceSwitcher · SystemStatus …
 │   └── lib/            api · types · forceLayout · sse
 │
-├── deploy/es/                               # ES8 + ik Docker 部署
-└── scripts/            create_admin · seed_demo · reindex_es · migrate_from_mywiki
+├── deploy/                                  # ES、备份与 systemd 配置
+└── scripts/fuxi.py                          # 唯一 Python 运维入口
 ```
 
 ---
@@ -138,7 +138,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 
 # 首个管理员（系统不开放自助注册）
-PYTHONPATH=. python ../scripts/create_admin.py \
+PYTHONPATH=. python ../scripts/fuxi.py admin \
   --username admin --email you@example.com --password '你的强密码'
 ```
 
@@ -197,9 +197,11 @@ curl -X POST localhost:8000/api/search \
 - [x] 空间（Spaces）多团队隔离 + 双层角色（系统级 + 空间级 viewer/editor/space_admin）
 - [x] 前端 Web 界面（含登录页 + 空间切换 / 管理 + 管理后台：入库 / 用户 / 标签 / 用量 / MCP）
 - [x] 鉴权（JWT，用户名/邮箱登录）+ 双层角色 + 每日 token 配额（429）+ 按用户隔离历史 + 用量看板
-- [ ] my-wiki 数据迁移脚本（仅占位）
+- [x] 统一 Python 运维入口（管理员、维护、索引、演示数据、生产验收）
 
 详细进度见 [PROGRESS.md](PROGRESS.md)。
+最终架构见 [docs/architecture.md](docs/architecture.md)，部署与运维见
+[docs/operations.md](docs/operations.md)。
 
 ---
 

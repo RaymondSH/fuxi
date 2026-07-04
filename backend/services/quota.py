@@ -3,7 +3,7 @@
 按 USAGE_TZ 的自然日聚合 token_usage.total_tokens，与用户有效额度比较：
   - admin / 额度为 None 视为不限；
   - member 用 users.daily_token_limit，未设则用 config.default_daily_token_limit。
-设计见 docs/auth-design.md。
+最终架构见 docs/architecture.md。
 """
 from __future__ import annotations
 

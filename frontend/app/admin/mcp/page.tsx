@@ -176,7 +176,7 @@ export default function McpAdminPage() {
             </div>
             <p className="mt-2 text-xs text-muted2">
               在 Claude Desktop 配置里填 <code className="font-mono">Authorization: Bearer {created.token}</code>，
-              端点 URL 见 <code className="font-mono">docs/mcp.md</code>。
+              端点与接入边界见 <code className="font-mono">docs/architecture.md</code>。
             </p>
             <button
               type="button"

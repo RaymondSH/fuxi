@@ -1,7 +1,7 @@
 -- ============================================================
 -- 用户体系 + token 用量账本
 -- 列名与 backend/services/auth.py、routers/auth.py、services/quota.py 对齐
--- 设计见 docs/auth-design.md
+-- 最终架构见 docs/architecture.md
 -- ============================================================
 
 -- 用户：管理员建号，不开放自助注册

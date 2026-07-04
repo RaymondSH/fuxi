@@ -64,7 +64,7 @@ class Settings:
     es_url: str = os.getenv("ES_URL", "")
     es_timeout: float = float(os.getenv("ES_TIMEOUT", "5.0"))  # 检索/索引超时（秒）
 
-    # ── 鉴权 / 配额（见 docs/auth-design.md）──
+    # ── 鉴权 / 配额（见 docs/architecture.md）──
     # JWT_SECRET 必填（随机长串）；未配置时登录/鉴权直接报错，不放行。
     jwt_secret: str = os.getenv("JWT_SECRET", "")
     # 双 token：access 短时（分钟）+ refresh 长时（天）。

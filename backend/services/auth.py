@@ -5,7 +5,7 @@
   - get_current_user / require_admin 作为路由依赖注入当前用户。
 
 外部 SDK（bcrypt/jwt）只在本模块 new，其他地方 `from services import auth`。
-设计见 docs/auth-design.md。
+最终架构见 docs/architecture.md。
 """
 from __future__ import annotations
 

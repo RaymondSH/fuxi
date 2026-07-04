@@ -13,7 +13,7 @@
   - visible_space_ids(conn, user)   → 返回空间 id 列表（sysadmin 返回 None 表示全可见）
   - space_filter(user, alias)       → 返回 (sql_fragment, params)，sysadmin 返回 ("", [])
 
-设计见 docs/spaces-design.md。CurrentUser 见 services/auth.py。
+最终架构见 docs/architecture.md。CurrentUser 见 services/auth.py。
 """
 from __future__ import annotations
 

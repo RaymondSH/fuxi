@@ -446,8 +446,8 @@
 
 ## 8. 鉴权 Auth
 
-> 系统不开放自助注册，账号由管理员创建（首个管理员用 `scripts/create_admin.py` 引导）。
-> 权限模型见 `docs/auth-design.md`。
+> 系统不开放自助注册，账号由管理员创建（首个管理员用 `scripts/fuxi.py admin` 引导）。
+> 权限模型见 [architecture.md](architecture.md)。
 
 ### `POST /api/auth/login` — 登录（公开）
 
@@ -598,13 +598,13 @@ access 黑名单行在其自然过期后失效（无需清理）；refresh 一�
 
 ## 10. MCP Server（Agent 接入）
 
-把知识库的检索 / 问答 / 笔记 / 图谱 / 主题页暴露为 LLM Agent 可调用的只读工具。外部客户端（Claude Desktop / 自建 Agent）用 **Bearer API token**（非 JWT）访问 `POST /mcp`（streamable HTTP）。设计与接入详见 [docs/mcp.md](mcp.md)。
+把知识库的检索 / 问答 / 笔记 / 图谱 / 主题页暴露为 LLM Agent 可调用的只读工具。外部客户端（Claude Desktop / 自建 Agent）用 **Bearer API token**（非 JWT）访问 `POST /mcp`（streamable HTTP）。设计与边界见 [architecture.md](architecture.md)。
 
 ### `POST /mcp` — MCP streamable HTTP（独立鉴权，非 `/api`）
 
 - **鉴权**：`Authorization: Bearer <mcp_token>`，与登录 JWT 分开的长期 API key；缺失/无效/已撤销返回 `401`。不挂全局登录依赖，也不计入用户配额。
 - **协议**：MCP streamable HTTP（`stateless_http=True`），客户端按 MCP 规范发 `initialize` → `tools/list` → `tools/call`。
-- **工具（全部只读）**：`search`、`ask`、`get_note`、`list_notes`、`get_graph`、`get_entity`、`list_wiki`、`get_wiki`。入参/返回见 [docs/mcp.md](mcp.md) 工具一览表。
+- **工具（全部只读）**：`search`、`ask`、`get_note`、`list_notes`、`get_graph`、`get_entity`、`list_wiki`、`get_wiki`。
 - **可用性**：`mcp` 包未安装时 `/mcp` 不挂载（`is_available()` 返回 False），其余 `/api/*` 不受影响。
 
 ### token 管理（admin）—— `/api/mcp-admin/tokens`
@@ -618,7 +618,7 @@ access 黑名单行在其自然过期后失效（无需清理）；refresh 一�
 
 > `prefix` 是明文前 8 位，用于后台识别是哪个 token；校验时线性扫 active token 做 `bcrypt.checkpw`，命中更新 `last_used_at`。
 >
-> **M2 空间绑定**：每个 token 必须绑定一个 `space_id`，工具调用按该空间过滤（等价该空间 viewer）。删除空间会级联撤销其 MCP token，不存在 `NULL=全库` 后门。详见 [spaces-design.md](spaces-design.md)。
+> **M2 空间绑定**：每个 token 必须绑定一个 `space_id`，工具调用按该空间过滤（等价该空间 viewer）。删除空间会级联撤销其 MCP token，不存在 `NULL=全库` 后门。权限边界见 [architecture.md](architecture.md)。
 
 ---
 
@@ -626,7 +626,7 @@ access 黑名单行在其自然过期后失效（无需清理）；refresh 一�
 
 空间（Space）是多团队内容隔离边界：每篇笔记 / wiki / MCP token 归属一个空间，读写按空间 ACL
 过滤。双层角色（系统级 `users.role` + 空间级 `space_members.role`）正交；sysadmin 对全部空间
-天然是 `space_admin`。设计见 [spaces-design.md](spaces-design.md)。
+天然是 `space_admin`。设计见 [architecture.md](architecture.md)。
 
 ### `GET /api/spaces` — 空间列表（需登录）
 

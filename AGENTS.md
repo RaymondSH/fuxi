@@ -2,8 +2,9 @@
 
 给在本仓库工作的 AI agent 和开发者看的总纲。**动手前先读这份文件。**
 
-> 项目定位见 [README.md](README.md)，接口契约见 [docs/api-contract.md](docs/api-contract.md)，
-> 进度见 [PROGRESS.md](PROGRESS.md)。前端设计稿是 `Fuxi 知识库 (standalone).html`。
+> 项目定位见 [README.md](README.md)，最终架构见 [docs/architecture.md](docs/architecture.md)，
+> 接口契约见 [docs/api-contract.md](docs/api-contract.md)，运维见
+> [docs/operations.md](docs/operations.md)，进度见 [PROGRESS.md](PROGRESS.md)。
 
 ---
 
@@ -11,7 +12,7 @@
 
 1. **改完代码就更新 [PROGRESS.md](PROGRESS.md)** — 把对应条目的状态（⬜/🚧/✅）改对，并在文件底部「更新日志」追加一行。这是硬性要求，不是可选项。
 2. **接口以 [docs/api-contract.md](docs/api-contract.md) 为准** — 前后端字段、枚举、路径都照契约来。要改接口，先改契约再改代码。
-3. **动了表结构就同步 `sql/` 文件** — schema 的唯一真相在 `sql/01`~`07`，不要只在数据库里改。
+3. **动了表结构就同步 `sql/` 文件** — schema 的唯一真相在 `sql/01`~`33`，不要只在数据库里改。
 
 ---
 
@@ -29,9 +30,9 @@
 ```
 fuxi/
 ├── AGENTS.md / README.md / PROGRESS.md     # 总纲 / 介绍 / 进度
-├── docs/api-contract.md                    # 前后端接口契约（单一真相）
+├── docs/               architecture / api-contract / operations
 ├── Fuxi 知识库 (standalone).html            # 前端设计稿（house style 的来源）
-├── sql/                01~07，schema 唯一真相（07 = note_chunks 分块表）
+├── sql/                01~33，schema 唯一真相
 ├── deploy/es/          ES8 + ik 中文分词 Docker 部署（绑 127.0.0.1:9200）
 ├── backend/            FastAPI
 │   ├── config.py db.py main.py
@@ -40,8 +41,8 @@ fuxi/
 │   ├── services/       复用逻辑门面（llm / embedder / fetcher / es / storage / chunker）
 │   │   └── providers/  策略层：base 抽象 + glm 智谱实现 + 工厂
 │   └── models/         （预留）ORM / pydantic 数据模型
-├── frontend/           Next.js（已建，7 页全通）
-└── scripts/            迁移 / 运维脚本（含 reindex_es.py）
+├── frontend/           Next.js Web
+└── scripts/fuxi.py     唯一 Python 运维入口
 ```
 
 ---

@@ -7,7 +7,10 @@ import uuid
 from db import pool
 from services import connector_crypto, distribution, lifecycle, llm
 from services.connector_providers import create
+from services.logging import get_logger
 from workers import ingest_worker
+
+log = get_logger("connector")
 
 
 def run(connector_id: uuid.UUID) -> None:
@@ -23,8 +26,21 @@ def run(connector_id: uuid.UUID) -> None:
     provider = create(provider_name, config or {}, connector_crypto.decrypt(encrypted))
     try:
         items, next_cursor = provider.list_changes(cursor)
+        item_errors = 0
         for item in items:
-            _sync_item(connector_id, space_id, provider, item)
+            try:
+                _sync_item(connector_id, space_id, provider, item)
+            except Exception as exc:  # noqa: BLE001 — 继续处理本批其余对象，批末统一失败
+                item_errors += 1
+                log.warning(
+                    "连接器单条同步失败 connector=%s external_id=%s: %s",
+                    connector_id, item.external_id, exc, exc_info=True,
+                )
+                _mark_item_error(connector_id, item, exc)
+        if item_errors:
+            # 不推进增量游标，保证失败对象下次仍会出现在同一批 change 中；
+            # 已成功对象按 remote_version 幂等跳过。
+            raise RuntimeError(f"{item_errors} 个远端对象同步失败")
         if provider.full_snapshot:
             seen = [item.external_id for item in items]
             with pool.connection() as conn:
@@ -54,6 +70,27 @@ def run(connector_id: uuid.UUID) -> None:
         raise
 
 
+def _mark_item_error(connector_id, item, exc) -> None:
+    """单条远端对象抓取/解析失败：标记该 item 为 error，不中断整轮同步。"""
+    with pool.connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM connector_items WHERE connector_id=%s AND external_id=%s",
+            (connector_id, item.external_id),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE connector_items SET status='error',error_msg=%s,synced_at=NOW() WHERE id=%s",
+                (str(exc)[:1000], existing[0]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO connector_items(connector_id,external_id,remote_version,remote_modified_at,"
+                "status,metadata,error_msg,synced_at) VALUES(%s,%s,%s,%s,'error',%s::jsonb,%s,NOW())",
+                (connector_id, item.external_id, item.version, item.modified_at,
+                 json.dumps(item.metadata or {}), str(exc)[:1000]),
+            )
+
+
 def _sync_item(connector_id, space_id, provider, item) -> None:
     with pool.connection() as conn:
         current = conn.execute(
@@ -74,7 +111,7 @@ def _sync_item(connector_id, space_id, provider, item) -> None:
         return
     document = provider.fetch_content(item)
     if not document.content.strip():
-        raise ValueError(f"远端内容为空: {item.external_id}")
+        raise ValueError("远端内容为空")
     analysis = llm.analyze(document.content, title_hint=item.title)
     note_id = current[1] if current and current[1] else uuid.uuid4()
     with pool.connection() as conn:

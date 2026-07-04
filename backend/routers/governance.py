@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from db import pool
-from services import audit, spaces
+from services import audit, quota, spaces
 from services.auth import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/governance", tags=["governance"])
@@ -16,27 +16,37 @@ router = APIRouter(prefix="/governance", tags=["governance"])
 @router.get("/issues")
 def list_issues(
     space_id: uuid.UUID, status: str = "open", type: str | None = None,
+    page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     spaces.assert_space_role(user, space_id, "viewer")
     where, params = ["space_id=%s", "status=%s"], [space_id, status]
     if type:
         where.append("issue_type=%s"); params.append(type)
+    clause = " AND ".join(where)
+    offset = (page - 1) * size
     with pool.connection() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM governance_issues WHERE {clause}", params
+        ).fetchone()[0]
         rows = conn.execute(
             f"""
             SELECT id,note_id,issue_type,severity,status,title,evidence,last_seen_at
-            FROM governance_issues WHERE {' AND '.join(where)}
+            FROM governance_issues WHERE {clause}
             ORDER BY CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                      last_seen_at DESC
+            LIMIT %s OFFSET %s
             """,
-            params,
+            [*params, size, offset],
         ).fetchall()
-    return {"items": [
-        {"id": r[0], "note_id": r[1], "type": r[2], "severity": r[3],
-         "status": r[4], "title": r[5], "evidence": r[6],
-         "last_seen_at": r[7].isoformat()} for r in rows
-    ]}
+    return {
+        "items": [
+            {"id": r[0], "note_id": r[1], "type": r[2], "severity": r[3],
+             "status": r[4], "title": r[5], "evidence": r[6],
+             "last_seen_at": r[7].isoformat()} for r in rows
+        ],
+        "total": total, "page": page, "size": size,
+    }
 
 
 class ScanRequest(BaseModel):
@@ -49,6 +59,7 @@ def start_scan(
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     spaces.assert_space_role(user, req.space_id, "space_admin")
+    quota.check_quota(user)
     run_id, job_id = uuid.uuid4(), uuid.uuid4()
     with pool.connection() as conn:
         conn.execute(
@@ -66,25 +77,38 @@ def start_scan(
         )
     audit.log("governance_scan", request=request, user_id=user.id,
               target_type="space", target_id=req.space_id)
+    # run 行默认 status='queued'；对外映射成 pending 与 ingest.status 枚举一致
     return {"run_id": run_id, "job_id": job_id, "status": "pending"}
 
 
 @router.get("/runs")
 def list_runs(
-    space_id: uuid.UUID, user: CurrentUser = Depends(get_current_user),
+    space_id: uuid.UUID,
+    page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+    user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     spaces.assert_space_role(user, space_id, "viewer")
+    offset = (page - 1) * size
     with pool.connection() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM governance_runs WHERE space_id=%s", (space_id,)
+        ).fetchone()[0]
         rows = conn.execute(
             "SELECT id,status,stats,error_msg,created_at,finished_at FROM governance_runs "
-            "WHERE space_id=%s ORDER BY created_at DESC LIMIT 30",
-            (space_id,),
+            "WHERE space_id=%s ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (space_id, size, offset),
         ).fetchall()
-    return {"items": [
-        {"id": r[0], "status": r[1], "stats": r[2], "error_msg": r[3],
-         "created_at": r[4].isoformat(),
-         "finished_at": r[5].isoformat() if r[5] else None} for r in rows
-    ]}
+    # run 状态用独立词表 queued/running/done/failed；对外映射到前端轮询习惯的
+    # pending/processing/done/failed（与 ingest.status 枚举对齐）。
+    _STATUS_MAP = {"queued": "pending", "running": "processing", "done": "done", "failed": "failed"}
+    return {
+        "items": [
+            {"id": r[0], "status": _STATUS_MAP.get(r[1], r[1]), "stats": r[2], "error_msg": r[3],
+             "created_at": r[4].isoformat(),
+             "finished_at": r[5].isoformat() if r[5] else None} for r in rows
+        ],
+        "total": total, "page": page, "size": size,
+    }
 
 
 class IssuePatch(BaseModel):
@@ -120,4 +144,3 @@ def update_issue(
               target_type="governance_issue", target_id=issue_id,
               detail={"status": req.status})
     return {"id": issue_id, "status": req.status}
-

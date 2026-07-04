@@ -4,10 +4,10 @@ from __future__ import annotations
 import unittest
 import uuid
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from services import guardrails, reranker
-from workers import job_runner
+from workers import governance_worker, job_runner
 
 
 class GuardrailTests(unittest.TestCase):
@@ -52,6 +52,37 @@ class LifecycleDispatchTests(unittest.TestCase):
             job_runner.dispatch((job_id, "note_reindex", note_id, {}))
         reindex.assert_called_once_with(note_id)
         done.assert_called_once_with(job_id)
+
+
+class GovernanceBudgetTests(unittest.TestCase):
+    def test_conflict_detection_is_capped_by_call_count(self) -> None:
+        pairs = [
+            (
+                uuid.uuid4(), f"A{i}", "", "left",
+                uuid.uuid4(), f"B{i}", "", "right", 0.8,
+            )
+            for i in range(50)
+        ]
+        conn = MagicMock()
+
+        def execute(sql, _params=None):
+            cursor = MagicMock()
+            if "FROM notes a JOIN notes b" in sql:
+                cursor.fetchall.return_value = pairs
+            elif "SELECT id,title" in sql or "SELECT n.id,n.title" in sql:
+                cursor.fetchall.return_value = []
+            return cursor
+
+        conn.execute.side_effect = execute
+        cm = MagicMock()
+        cm.__enter__.return_value = conn
+        assessment = SimpleNamespace(conflict=False, topic="", explanation="")
+        with (
+            patch.object(governance_worker.pool, "connection", return_value=cm),
+            patch.object(governance_worker.llm, "detect_conflict", return_value=assessment) as detect,
+        ):
+            governance_worker.run(uuid.uuid4(), uuid.uuid4())
+        self.assertEqual(detect.call_count, governance_worker._CONFLICT_LLM_CAP)
 
 
 if __name__ == "__main__":

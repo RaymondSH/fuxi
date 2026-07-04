@@ -12,9 +12,10 @@ import asyncio
 import json
 import re
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from db import pool
@@ -37,14 +38,14 @@ def _normalize_style(s: str) -> QaStyle:
 
 
 class QaTurn(BaseModel):
-    role: str
+    role: Literal["user", "assistant"]
     text: str
 
 
 class QaRequest(BaseModel):
     question: str
-    history: list[QaTurn] = []
-    style: str = "default"  # default | executive | technical | eli5
+    history: list[QaTurn] = Field(default_factory=list)
+    style: Literal["default", "executive", "technical", "eli5"] = "default"
 
 
 class Source(BaseModel):
@@ -152,10 +153,17 @@ async def qa_stream(req: QaRequest, user: CurrentUser = Depends(get_current_user
 
         quota.record_usage(user.id, "qa_stream", u)
         answer_text = "".join(full_answer)
-        _save_history(question, answer_text, [uuid.UUID(s["id"]) for s in sources], user.id)
+        # 对最终答案做 PII 掩码，done 事件带 masked_answer 供前端覆盖显示；
+        # token 事件已逐块发出无法撤回，但前端可用 masked_answer 替换最终展示。
+        masked_answer, answer_masked = guardrails.mask_pii(answer_text)
+        _save_history(question, masked_answer, [uuid.UUID(s["id"]) for s in sources], user.id)
         yield {
             "event": "done",
-            "data": json.dumps({"generated": generated}, ensure_ascii=False),
+            "data": json.dumps(
+                {"generated": generated, "pii_masked": answer_masked,
+                 "masked_answer": masked_answer},
+                ensure_ascii=False,
+            ),
         }
 
     return EventSourceResponse(event_gen())
@@ -206,16 +214,20 @@ async def qa_agentic_stream(req: QaRequest, user: CurrentUser = Depends(get_curr
                 yield {"event": "token", "data": json.dumps({"text": fallback}, ensure_ascii=False)}
 
         answer = "".join(answer_parts)
-        verification = guardrails.verify_citations(answer, len(sources))
+        # 对最终答案做 PII 掩码（与 /qa/stream 一致），done 带 masked_answer。
+        masked_answer, answer_masked = guardrails.mask_pii(answer)
+        verification = guardrails.verify_citations(masked_answer, len(sources))
         yield {"event": "verification", "data": json.dumps(verification, ensure_ascii=False)}
         trace = {"queries": queries, "source_ids": [s["id"] for s in sources]}
         _save_history(
-            question, answer, [uuid.UUID(s["id"]) for s in sources], user.id,
+            question, masked_answer, [uuid.UUID(s["id"]) for s in sources], user.id,
             mode="agentic", trace=trace, verification=verification,
         )
         quota.record_usage(user.id, "qa_agentic", u)
         yield {"event": "done", "data": json.dumps({
-            "generated": generated, "mode": "agentic", "pii_masked": q_masked or c_masked,
+            "generated": generated, "mode": "agentic",
+            "pii_masked": answer_masked or q_masked or c_masked,
+            "masked_answer": masked_answer,
         }, ensure_ascii=False)}
 
     return EventSourceResponse(event_gen())
@@ -291,6 +303,8 @@ def _agentic_retrieve(
     seen: set[uuid.UUID] = set()
     with pool.connection() as conn:
         for query in queries[:3]:
+            if len(merged) >= 8:
+                break  # 已凑够，不再为剩余子查询跑检索+重排（省 token 与延迟）
             kw = search_mod._keyword_search(conn, query, [], "all", sf, sfp, es_sids)
             vec = search_mod._try_embed(query)
             sem = search_mod._semantic_search(conn, vec, [], "all", sf, sfp) if vec else []
@@ -314,7 +328,8 @@ def _retrieve_generated_qa(conn, vec, space_frag: str = "", space_params: list |
         SELECT gq.question, gq.answer
         FROM generated_qa gq
         JOIN notes ON notes.id = gq.note_id
-        WHERE gq.embedding IS NOT NULL AND notes.deleted_at IS NULL{space_frag}
+        WHERE gq.embedding IS NOT NULL AND notes.deleted_at IS NULL
+          AND notes.ingest_status = 'done'{space_frag}
         ORDER BY gq.embedding <=> %s::vector
         LIMIT {_QA_RECALL_K}
         """,

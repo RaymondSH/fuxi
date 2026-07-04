@@ -34,3 +34,4 @@
 \i sql/31_m4_feedback.sql
 \i sql/32_m4_agent.sql
 \i sql/33_m4_jobs.sql
+\i sql/34_undelete_version.sql

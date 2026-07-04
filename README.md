@@ -66,7 +66,7 @@ AI Pipeline           Ingest Worker · RAG Engine · Graph Builder · Compile Wo
 fuxi/
 ├── README.md / AGENTS.md / CLAUDE.md / PROGRESS.md
 ├── docs/                                    # api-contract / architecture / operations
-├── sql/                                     # 数据库 schema（00 入口按序执行 01~33）
+├── sql/                                     # 数据库 schema（00 入口按序执行 01~34）
 │   ├── 01_extensions … 06_jobs              # 扩展 / 笔记 / 图谱 / wiki / 历史 / 队列
 │   ├── 07_chunks.sql                        # 文档分块表 note_chunks
 │   ├── 08_auth.sql                          # users + token_usage 账本
@@ -108,7 +108,7 @@ fuxi/
 ```bash
 # PostgreSQL 16+ 且装好 pgvector 扩展
 createdb fuxi
-psql -d fuxi -f sql/00_init.sql      # 按序建 01~10 全部表/索引
+psql -d fuxi -f sql/00_init.sql      # 按序执行 01~34，创建全部表/索引
 ```
 
 ### 2. 配置
@@ -144,6 +144,14 @@ PYTHONPATH=. python ../scripts/fuxi.py admin \
 
 打开 http://localhost:8000/docs 看交互式 API 文档。
 
+开发与回归测试使用独立依赖：
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
 ### 4. 启动前端
 
 ```bash
@@ -158,16 +166,18 @@ npm run dev        # 开发；生产用 npm run build && npm start
 
 ## API
 
-所有业务接口挂在 `/api` 下；**除 `POST /api/auth/login` 外都需带 `Authorization: Bearer <jwt>`**（入库、删除、Wiki 编译仅管理员）。完整契约见 [docs/api-contract.md](docs/api-contract.md)。
+所有业务接口挂在 `/api` 下；Web 使用 httpOnly Cookie，移动端使用
+`Authorization: Bearer <access_token>`。除登录和刷新外均需鉴权；写操作按空间角色校验。
+完整契约见 [docs/api-contract.md](docs/api-contract.md)。
 
 ```bash
 # 登录（用户名或邮箱皆可）→ 拿 token
 curl -X POST localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"identifier":"admin","password":"你的密码"}'
-# → {"access_token":"<jwt>","user":{...}}
+  -d '{"identifier":"admin","password":"你的密码","client":"mobile"}'
+# → {"access_token":"<jwt>","refresh_token":"<jwt>","user":{...}}
 
-# 链接入库（管理员）
+# 链接入库（目标空间 editor+）
 curl -X POST localhost:8000/api/ingest/url \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com/article"}'

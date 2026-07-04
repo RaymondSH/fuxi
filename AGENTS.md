@@ -32,7 +32,7 @@ fuxi/
 ├── AGENTS.md / README.md / PROGRESS.md     # 总纲 / 介绍 / 进度
 ├── docs/               architecture / api-contract / operations
 ├── Fuxi 知识库 (standalone).html            # 前端设计稿（house style 的来源）
-├── sql/                01~33，schema 唯一真相
+├── sql/                01~34，schema 唯一真相
 ├── deploy/es/          ES8 + ik 中文分词 Docker 部署（绑 127.0.0.1:9200）
 ├── backend/            FastAPI
 │   ├── config.py db.py main.py

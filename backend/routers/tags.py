@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from db import pool
 from services import audit, es, spaces
 from services.auth import CurrentUser, get_current_user, require_admin
+from services.logging import get_logger
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -172,31 +173,27 @@ def merge_tag(
 
     from_tag 与 to_tag 相同报错；to_tag 无需预先在词表里存在（直接物理回写即可）。
     返回受影响的笔记数。
+
+    原子性：PG 回写 + 词表 UPSERT 在一个事务内提交；ES 同步在事务提交后进行，
+    失败仅记 warning（PG 是真相，ES 下次 reindex 自然修复），不回滚 PG。
     """
     if req.from_tag == req.to_tag:
         raise HTTPException(status_code=400, detail="不能归并到自己")
+    log = get_logger("tags")
     with pool.connection() as conn:
         # 找含 from_tag 的笔记（done 才索引进 ES，非 done 也回写但不必同步 ES）
         affected = conn.execute(
-            "SELECT id, source_type, title, COALESCE(summary,''), COALESCE(content,''), tags, space_id "
+            "SELECT id, source_type, title, COALESCE(summary,''), COALESCE(content,''), "
+            "tags, space_id, ingest_status "
             "FROM notes WHERE %s = ANY(tags) AND deleted_at IS NULL",
             (req.from_tag,),
         ).fetchall()
         for r in affected:
-            note_id, source_type, title, summary, content, tags, space_id = r
+            note_id = r[0]
             conn.execute(
                 "UPDATE notes SET tags = array_replace(tags, %s, %s) WHERE id = %s",
                 (req.from_tag, req.to_tag, note_id),
             )
-            # 同步 ES（done 的笔记才在索引里；index_note 内部已按 _is_enabled() 短路）
-            # 在 Python 侧把 from_tag 替成 to_tag 并去重，避免 to_tag 已存在时重复
-            new_tags: list[str] = []
-            for t in (tags or []):
-                canonical = req.to_tag if t == req.from_tag else t
-                if canonical not in new_tags:
-                    new_tags.append(canonical)
-            es.index_note(str(note_id), title, summary or "", content or "",
-                          new_tags, source_type, space_id=str(space_id))
         # 词表里若 from_tag 存在，标 merged + 指向 to_tag
         conn.execute(
             """
@@ -205,6 +202,22 @@ def merge_tag(
             """,
             (req.from_tag, req.to_tag, req.to_tag),
         )
+    # PG 已提交；同步 ES（失败不回滚 PG）
+    for r in affected:
+        note_id, source_type, title, summary, content, tags, space_id, ingest_status = r
+        if ingest_status != "done":
+            continue
+        # 在 Python 侧把 from_tag 替成 to_tag 并去重，避免 to_tag 已存在时重复
+        new_tags: list[str] = []
+        for t in (tags or []):
+            canonical = req.to_tag if t == req.from_tag else t
+            if canonical not in new_tags:
+                new_tags.append(canonical)
+        try:
+            es.index_note(str(note_id), title, summary or "", content or "",
+                          new_tags, source_type, space_id=str(space_id))
+        except Exception:  # noqa: BLE001 — ES 失败不阻塞归并，PG 已是真相
+            log.warning("归并后同步 ES 失败 note_id=%s", note_id, exc_info=True)
     audit.log("tag_merge", request=request, user_id=admin.id, target_type="tag", target_id=req.from_tag,
               detail={"from": req.from_tag, "to": req.to_tag, "affected": len(affected)})
     return {"affected_notes": len(affected), "from": req.from_tag, "to": req.to_tag}

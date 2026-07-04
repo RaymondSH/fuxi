@@ -147,19 +147,24 @@ def compile_status(slug: str, user: CurrentUser = Depends(get_current_user)) -> 
 
 @router.get("", response_model=dict)
 def list_wiki(user: CurrentUser = Depends(get_current_user)) -> dict:
-    """主题页列表。M2：限定用户可见空间（sysadmin 全可见）。"""
+    """主题页列表。M2：限定用户可见空间（sysadmin 全可见）。
+
+    空间过滤片段的 alias 必须用 wiki_pages（外层 FROM 的表别名），
+    而非默认的 notes —— 否则非 sysadmin 会触发「missing FROM-clause for notes」。
+    """
     with pool.connection() as conn:
         sids = spaces.visible_space_ids(conn, user)
-        sf, sfp = spaces.space_filter_from(sids)
+        sf, sfp = spaces.space_filter_from(sids, alias="wiki_pages")
         rows = conn.execute(
             f"""
             SELECT slug, title, COALESCE(compiled_at, updated_at),
                    COALESCE(array_length(source_note_ids, 1), 0), space_id
             FROM wiki_pages
-            WHERE NOT EXISTS (
-                SELECT 1 FROM unnest(source_note_ids) AS sid(note_id)
-                JOIN notes sn ON sn.id=sid.note_id WHERE sn.deleted_at IS NOT NULL
-            ){sf}
+            WHERE COALESCE(array_length(
+                      (SELECT array_agg(sid.note_id) FROM unnest(source_note_ids) AS sid(note_id)
+                       JOIN notes sn ON sn.id=sid.note_id
+                       WHERE sn.deleted_at IS NULL AND sn.ingest_status='done'), 1), 0) > 0
+                  {sf}
             ORDER BY COALESCE(compiled_at, updated_at) DESC
             """,
             sfp,
@@ -185,18 +190,19 @@ def get_wiki(slug: str, user: CurrentUser = Depends(get_current_user)) -> WikiDe
     """
     with pool.connection() as conn:
         sids = spaces.visible_space_ids(conn, user)
-        sf, sfp = spaces.space_filter_from(sids)
+        wiki_sf, wiki_sfp = spaces.space_filter_from(sids, alias="wiki_pages")
         row = conn.execute(
             f"""
             SELECT slug, title, COALESCE(compiled_at, updated_at),
                    source_note_ids, sections, conflict, space_id
             FROM wiki_pages WHERE slug = %s
-              AND NOT EXISTS (
-                SELECT 1 FROM unnest(source_note_ids) AS sid(note_id)
-                JOIN notes sn ON sn.id=sid.note_id WHERE sn.deleted_at IS NOT NULL
-              ){sf}
+              AND COALESCE(array_length(
+                      (SELECT array_agg(sid.note_id) FROM unnest(source_note_ids) AS sid(note_id)
+                       JOIN notes sn ON sn.id=sid.note_id
+                       WHERE sn.deleted_at IS NULL AND sn.ingest_status='done'), 1), 0) > 0
+              {wiki_sf}
             """,
-            [slug, *sfp],
+            [slug, *wiki_sfp],
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="主题页不存在")
@@ -206,12 +212,13 @@ def get_wiki(slug: str, user: CurrentUser = Depends(get_current_user)) -> WikiDe
         sources = []
         if source_ids:
             # 来源笔记同样限可见空间：万一主题页被改了来源 id 也读不出异空间笔记
+            note_sf, note_sfp = spaces.space_filter_from(sids, alias="notes")
             note_rows = conn.execute(
                 f"""
                 SELECT id, title, source_type FROM notes
-                WHERE id = ANY(%s) AND ingest_status = 'done' AND deleted_at IS NULL{sf}
+                WHERE id = ANY(%s) AND ingest_status = 'done' AND deleted_at IS NULL{note_sf}
                 """,
-                [source_ids, *sfp],
+                [source_ids, *note_sfp],
             ).fetchall()
             sources = [
                 {"id": str(n[0]), "title": n[1], "type": _TYPE_MAP.get(n[2], "link")}

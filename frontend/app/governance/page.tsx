@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { canAct, useSpaces } from "@/components/SpacesProvider";
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ApiError, apiGet, apiPatch, apiPost } from "@/lib/api";
 
 interface Issue {
   id: string;
@@ -20,9 +20,11 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function GovernancePage() {
-  const { spaces, activeSpace } = useSpaces();
+  const { spaces, activeSpace, loading: spacesLoading, error: spacesError } = useSpaces();
   const [spaceId, setSpaceId] = useState("");
   const [items, setItems] = useState<Issue[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const selected = spaces.find((s) => s.id === spaceId);
 
@@ -32,19 +34,38 @@ export default function GovernancePage() {
 
   async function load(id = spaceId) {
     if (!id) return;
-    const data = await apiGet<{ items: Issue[] }>(`/governance/issues?space_id=${id}&status=open`);
-    setItems(data.items);
+    setLoading(true);
+    setError("");
+    setItems([]);
+    try {
+      const data = await apiGet<{ items: Issue[] }>(`/governance/issues?space_id=${id}&status=open`);
+      setItems(data.items);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "治理待办加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
-  useEffect(() => { load().catch(() => {}); }, [spaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [spaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function scan() {
     setBusy(true);
-    try { await apiPost("/governance/scans", { space_id: spaceId }); }
+    setError("");
+    try {
+      await apiPost("/governance/scans", { space_id: spaceId });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "巡检任务创建失败");
+    }
     finally { setBusy(false); }
   }
   async function close(id: string, status: "resolved" | "ignored") {
-    await apiPatch(`/governance/issues/${id}`, { status });
-    setItems((prev) => prev.filter((x) => x.id !== id));
+    setError("");
+    try {
+      await apiPatch(`/governance/issues/${id}`, { status });
+      setItems((prev) => prev.filter((x) => x.id !== id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "治理待办更新失败");
+    }
   }
 
   return (
@@ -67,6 +88,9 @@ export default function GovernancePage() {
           )}
         </div>
       </div>
+      {(spacesError || error) && (
+        <p className="mb-4 text-sm text-[#B23C3C]">{spacesError || error}</p>
+      )}
       <div className="space-y-3">
         {items.map((item) => (
           <div key={item.id} className="rounded-xl border border-line bg-panel p-4">
@@ -87,7 +111,14 @@ export default function GovernancePage() {
             </div>
           </div>
         ))}
-        {!items.length && <div className="rounded-xl border border-dashed border-line p-10 text-center text-sm text-muted2">当前没有开放待办</div>}
+        {(spacesLoading || loading) && (
+          <div className="rounded-xl border border-dashed border-line p-10 text-center text-sm text-muted2">加载中…</div>
+        )}
+        {!spacesLoading && !loading && !spacesError && !error && !items.length && (
+          <div className="rounded-xl border border-dashed border-line p-10 text-center text-sm text-muted2">
+            当前没有开放待办
+          </div>
+        )}
       </div>
     </div>
   );

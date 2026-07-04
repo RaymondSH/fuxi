@@ -9,12 +9,21 @@ import SystemStatus from "@/components/SystemStatus";
 import { apiGet } from "@/lib/api";
 import type { SystemStatus as SystemStatusData } from "@/lib/types";
 
-const NAV: { href: string; label: string; en: string }[] = [
+interface NavItem {
+  href: string;
+  label: string;
+  en: string;
+}
+
+const CORE_NAV: NavItem[] = [
   { href: "/search", label: "检索", en: "Search" },
   { href: "/notes", label: "笔记", en: "Notes" },
   { href: "/qa", label: "问答", en: "Ask" },
   { href: "/graph", label: "知识图谱", en: "Graph" },
   { href: "/wiki", label: "主题页", en: "Wiki" },
+];
+
+const COLLABORATION_NAV: NavItem[] = [
   { href: "/spaces", label: "空间", en: "Spaces" },
   { href: "/history", label: "历史", en: "History" },
   { href: "/governance", label: "知识治理", en: "Governance" },
@@ -24,7 +33,7 @@ const NAV: { href: string; label: string; en: string }[] = [
 ];
 
 // 仅系统管理员可见。
-const ADMIN_NAV: { href: string; label: string; en: string }[] = [
+const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users", label: "用户", en: "Users" },
   { href: "/admin/tags", label: "标签治理", en: "Tags" },
   { href: "/admin/usage", label: "用量", en: "Usage" },
@@ -65,34 +74,39 @@ export default function Sidebar() {
       </div>
 
       {/* 导航 */}
-      <nav className="flex flex-col gap-1 px-3">
-        {NAV.map((item) => (
-          <NavLink key={item.href}
-            item={item.href === "/notifications" && unread ? {...item, label: `通知 (${unread})`} : item}
-            active={isActive(item.href)} />
-        ))}
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3">
+        <NavGroup
+          title="知识工作"
+          items={CORE_NAV}
+          isActive={isActive}
+          defaultOpen
+        />
+        <NavGroup
+          title="协作与治理"
+          items={COLLABORATION_NAV.map((item) =>
+            item.href === "/notifications" && unread
+              ? { ...item, label: `通知 (${unread})` }
+              : item
+          )}
+          isActive={isActive}
+        />
         {canIngest && (
-          <>
-            <NavLink
-              item={{ href: "/ingest", label: "入库", en: "Ingest" }}
-              active={isActive("/ingest")}
-            />
-            <NavLink
-              item={{ href: "/trash", label: "回收站", en: "Trash" }}
-              active={isActive("/trash")}
-            />
-          </>
+          <NavGroup
+            title="内容管理"
+            items={[
+              { href: "/ingest", label: "入库", en: "Ingest" },
+              { href: "/trash", label: "回收站", en: "Trash" },
+            ]}
+            isActive={isActive}
+          />
         )}
 
         {user?.role === "admin" && (
-          <>
-            <div className="mt-4 mb-1 px-3 font-mono text-[10px] uppercase tracking-widest text-muted2">
-              管理
-            </div>
-            {ADMIN_NAV.map((item) => (
-              <NavLink key={item.href} item={item} active={isActive(item.href)} />
-            ))}
-          </>
+          <NavGroup
+            title="系统管理"
+            items={ADMIN_NAV}
+            isActive={isActive}
+          />
         )}
       </nav>
 
@@ -127,6 +141,46 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+function NavGroup({
+  title,
+  items,
+  isActive,
+  defaultOpen = false,
+}: {
+  title: string;
+  items: NavItem[];
+  isActive: (href: string) => boolean;
+  defaultOpen?: boolean;
+}) {
+  const hasActiveItem = items.some((item) => isActive(item.href));
+  const [open, setOpen] = useState(defaultOpen || hasActiveItem);
+
+  useEffect(() => {
+    if (hasActiveItem) setOpen(true);
+  }, [hasActiveItem]);
+
+  return (
+    <section>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="mt-1 flex w-full items-center justify-between rounded-lg px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-muted2 transition-colors hover:bg-cream hover:text-muted"
+      >
+        <span>{title}</span>
+        <span className={`text-sm transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1">
+          {items.map((item) => (
+            <NavLink key={item.href} item={item} active={isActive(item.href)} />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

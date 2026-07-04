@@ -25,7 +25,7 @@ export interface QaStreamHandlers {
   /** 逐块生成的回答文本，前端逐字拼到当前消息末尾。 */
   onToken: (text: string) => void;
   /** 流结束；generated=false 表示缺密钥/调用失败的降级。 */
-  onDone: (generated: boolean) => void;
+  onDone: (generated: boolean, maskedAnswer?: string) => void;
   onVerification?: (result: { status: string; message: string }) => void;
 }
 
@@ -135,7 +135,10 @@ function dispatch(event: string, data: string, h: QaStreamHandlers): void {
       if (obj.text) h.onToken(obj.text);
     } else if (event === "done") {
       const obj = JSON.parse(data || "{}");
-      h.onDone(Boolean(obj.generated));
+      h.onDone(
+        Boolean(obj.generated),
+        typeof obj.masked_answer === "string" ? obj.masked_answer : undefined,
+      );
     } else if (event === "verification") {
       h.onVerification?.(JSON.parse(data || "{}"));
     }

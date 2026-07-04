@@ -1,6 +1,6 @@
 "use client";
 
-// 空间上下文：挂载时拉 /spaces（当前用户可见空间），持久化「当前活动空间」到 localStorage。
+// 空间上下文：登录态确认或用户变化时拉 /spaces，持久化「当前活动空间」到 localStorage。
 // 提供 useSpaces() 给全应用读取：
 //   - spaces：可见空间列表（含 my_role / member_count）
 //   - activeSpace：当前选中的空间（切换后写入 localStorage，刷新仍记住）
@@ -14,7 +14,8 @@
 // 读列表仍返回该用户全部可见空间的内容；活动空间切换只影响入库默认目标。
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { apiGet } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
+import { ApiError, apiGet } from "@/lib/api";
 import type { SpaceWithMembership } from "@/lib/types";
 
 const ACTIVE_KEY = "fuxi_active_space";
@@ -23,6 +24,7 @@ const DEFAULT_NONE = "__all__"; // 「全部空间」占位（入库时不传 sp
 interface SpacesState {
   spaces: SpaceWithMembership[];
   loading: boolean;
+  error: string;
   // activeId：当前活动空间 id；DEFAULT_NONE 表示「全部」（不指定）
   activeId: string;
   activeSpace: SpaceWithMembership | null;
@@ -50,11 +52,15 @@ function saveActiveId(id: string) {
 }
 
 export default function SpacesProvider({ children }: { children: React.ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
   const [spaces, setSpaces] = useState<SpaceWithMembership[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [activeId, setActiveIdState] = useState<string>(DEFAULT_NONE);
 
   const reload = useCallback(async () => {
+    setLoading(true);
+    setError("");
     try {
       const res = await apiGet<{ items: SpaceWithMembership[] }>("/spaces");
       setSpaces(res.items);
@@ -66,16 +72,24 @@ export default function SpacesProvider({ children }: { children: React.ReactNode
       } else {
         setActiveIdState(current);
       }
-    } catch {
-      /* 拉取失败静默：未登录时由 AuthProvider 跳转，这里不重复处理 */
+    } catch (err) {
+      setSpaces([]);
+      setError(err instanceof ApiError ? err.message : "空间加载失败");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (authLoading) return;
+    if (!user) {
+      setSpaces([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
+    void reload();
+  }, [authLoading, user?.id, reload]);
 
   const setActiveId = useCallback((id: string) => {
     setActiveIdState(id);
@@ -86,7 +100,7 @@ export default function SpacesProvider({ children }: { children: React.ReactNode
 
   return (
     <SpacesContext.Provider
-      value={{ spaces, loading, activeId, activeSpace, setActiveId, reload }}
+      value={{ spaces, loading, error, activeId, activeSpace, setActiveId, reload }}
     >
       {children}
     </SpacesContext.Provider>

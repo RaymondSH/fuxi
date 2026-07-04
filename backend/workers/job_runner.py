@@ -139,7 +139,11 @@ def dispatch(job) -> None:
             _mark_done(job_id)
         elif job_type == "agent_plan":
             from workers import agent_worker
-            agent_worker.plan(_uuid(payload.get("run_id")), _uuid(payload.get("space_id")))
+            agent_worker.plan(
+                _uuid(payload.get("run_id")),
+                _uuid(payload.get("space_id")),
+                actor_id=actor_id,
+            )
             _mark_done(job_id)
         elif job_type == "proposal_execute":
             from workers import agent_worker

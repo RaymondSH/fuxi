@@ -89,11 +89,13 @@ def assert_space_role(user: CurrentUser, space_id, min_role: str) -> str:
     """校验用户在某空间有至少 min_role 权限，不满足抛 403。返回实际角色。
 
     min_role ∈ {viewer, editor, space_admin}。sysadmin 恒通过。
+    无权（非成员/空间不存在）统一抛 404，避免通过响应码泄露资源是否存在
+    （契约：无权访问的资源统一 404）。
     """
     with pool.connection() as conn:
         role = role_in_space(conn, user, space_id)
     if role is None:
-        raise HTTPException(status_code=403, detail="你不在此空间，或空间不存在")
+        raise HTTPException(status_code=404, detail="空间不存在或无权访问")
     if _ROLE_LEVEL.get(role, 0) < _ROLE_LEVEL[min_role]:
         raise HTTPException(
             status_code=403,
@@ -114,7 +116,7 @@ def assert_note_role(user: CurrentUser, note_id, min_role: str) -> str:
     """对单篇笔记操作的角色校验：取笔记空间 → 校验角色。sysadmin 恒通过。
 
     用于 generate-qa / delete / compile 等写操作的前置校验。
-    笔记不存在抛 404；无权抛 403。
+    笔记不存在抛 404；无权（异空间）也抛 404（不泄露笔记是否存在）。
     """
     with pool.connection() as conn:
         space_id = get_note_space(conn, note_id)

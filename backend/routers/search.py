@@ -14,9 +14,10 @@ from __future__ import annotations
 import html
 import time
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from db import pool
 from services import embedder, es, guardrails, quota, reranker, spaces, usage
@@ -31,11 +32,11 @@ _RRF_K = 60  # RRF 平滑常数
 
 class SearchRequest(BaseModel):
     q: str
-    mode: str = "hybrid"  # hybrid | keyword | semantic
-    tags: list[str] = []
-    time_filter: str = "all"
-    page: int = 1
-    size: int = 20
+    mode: Literal["hybrid", "keyword", "semantic"] = "hybrid"
+    tags: list[str] = Field(default_factory=list)
+    time_filter: Literal["all", "today", "week", "month", "year"] = "all"
+    page: int = Field(1, ge=1)
+    size: int = Field(20, ge=1, le=100)
 
 
 class SearchResult(BaseModel):
@@ -72,8 +73,12 @@ def search(req: SearchRequest, user: CurrentUser = Depends(get_current_user)) ->
         with pool.connection() as conn:
             sids = spaces.visible_space_ids(conn, user)
             sf, sfp = spaces.space_filter_from(sids)
+            # total 用真实 COUNT(*)，不被 LIMIT 100 截断；ordered 仍限 100 防超大结果集
+            extra, extra_params = _filters(req.tags, req.time_filter, sf, sfp)
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM notes WHERE ingest_status = 'done'{extra}", extra_params
+            ).fetchone()[0]
             ordered = _tag_search(conn, req.tags, req.time_filter, sf, sfp)
-        total = len(ordered)
         page_rows = ordered[(req.page - 1) * req.size : (req.page - 1) * req.size + req.size]
         results = [_to_result(r, q) for r in page_rows]
         _save_history(q, "tag", req.tags, req.time_filter, [r.id for r in results], total, user.id)
@@ -117,6 +122,8 @@ def search(req: SearchRequest, user: CurrentUser = Depends(get_current_user)) ->
         with pool.connection() as conn:
             ordered = reranker.rerank_rows(safe_q, ordered, conn, usage_acc=u)
 
+    # keyword/semantic/hybrid 都是最多 100 条候选的有界排序窗口；
+    # total 必须与实际可分页结果一致，不能拿 ILIKE 数量冒充语义命中总数。
     total = len(ordered)
     start = (req.page - 1) * req.size
     page_rows = ordered[start : start + req.size]

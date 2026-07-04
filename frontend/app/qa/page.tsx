@@ -100,9 +100,15 @@ export default function QaPage() {
           ));
           scrollToBottom();
         },
-        onDone: (generated) => {
+        onDone: (generated, maskedAnswer) => {
           setMessages((prev) => prev.map(
-            (message) => message.id === assistantId ? { ...message, generated } : message
+            (message) => message.id === assistantId
+              ? {
+                  ...message,
+                  generated,
+                  text: maskedAnswer ?? message.text,
+                }
+              : message
           ));
         },
         onVerification: (verification) => {

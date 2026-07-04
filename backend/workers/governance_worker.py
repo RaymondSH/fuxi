@@ -12,6 +12,9 @@ from services.logging import get_logger
 
 log = get_logger("governance")
 
+# 单次扫描冲突检测的 LLM 调用上限：超出部分留待下次，避免大型空间耗光触发者配额。
+_CONFLICT_LLM_CAP = 20
+
 
 def _fp(kind: str, *parts) -> str:
     raw = ":".join([kind, *(str(p) for p in parts)])
@@ -42,10 +45,16 @@ def run(run_id: uuid.UUID, space_id: uuid.UUID, actor_id=None) -> None:
         raise ValueError("governance_scan 缺少 run_id/space_id")
     seen: set[str] = set()
     stats = {k: 0 for k in ("stale", "duplicate", "conflict", "broken_link", "missing_tags")}
+    conflict_calls = 0
     with pool.connection() as conn:
         conn.execute(
             "UPDATE governance_runs SET status='running',started_at=NOW() WHERE id=%s",
             (run_id,),
+        )
+        # 同步推进 jobs.stage，让前端轮询 /ingest/jobs 能看到治理扫描进度
+        conn.execute(
+            "UPDATE jobs SET stage='scan' WHERE job_type='governance_scan' "
+            "AND payload->>'run_id'=%s", (str(run_id),),
         )
     try:
         with usage.collect() as collected, pool.connection() as conn:
@@ -103,6 +112,11 @@ def run(run_id: uuid.UUID, space_id: uuid.UUID, actor_id=None) -> None:
                     _upsert(conn, space_id, a_id, "duplicate", "medium",
                             f"「{a_title}」与「{b_title}」高度相似",
                             {"other_note_id": str(b_id), "similarity": float(similarity)}, fp)
+                # conflict 检测每对都要调 LLM，成本高；对单次扫描的 LLM 调用数封顶，
+                # 超出的对留待下次扫描，避免大型空间一次扫描耗光触发者配额。
+                if conflict_calls >= _CONFLICT_LLM_CAP:
+                    continue
+                conflict_calls += 1
                 try:
                     left, _ = guardrails.mask_pii(
                         f"{a_title}\n{a_sum}\n{a_content[:1500]}",
@@ -112,6 +126,7 @@ def run(run_id: uuid.UUID, space_id: uuid.UUID, actor_id=None) -> None:
                     )
                     assessment = llm.detect_conflict(left, right)
                 except Exception:
+                    log.warning("冲突检测 LLM 调用失败 a=%s b=%s", a_id, b_id, exc_info=True)
                     continue
                 if assessment.conflict:
                     fp = _fp("conflict", *ordered); seen.add(fp); stats["conflict"] += 1
@@ -137,6 +152,10 @@ def run(run_id: uuid.UUID, space_id: uuid.UUID, actor_id=None) -> None:
             conn.execute(
                 "UPDATE governance_runs SET status='done',stats=%s::jsonb,finished_at=NOW() WHERE id=%s",
                 (json.dumps(stats), run_id),
+            )
+            conn.execute(
+                "UPDATE jobs SET stage='done' WHERE job_type='governance_scan' "
+                "AND payload->>'run_id'=%s", (str(run_id),),
             )
         if actor_id is not None:
             quota.record_usage(actor_id, "governance_scan", collected)

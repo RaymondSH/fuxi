@@ -150,6 +150,7 @@ def _register_tools(mcp) -> None:
     def search(q: str, mode: str = "hybrid", tags: list[str] | None = None,
                limit: int = 10) -> str:
         """在知识库里检索笔记。mode: hybrid（默认，关键词+语义融合）/ keyword / semantic。
+        q 为空但 tags 非空时走「按标签浏览」（不打分、不调 LLM）。
         返回 JSON：[{id, title, type, summary, score}]。仅检索 token 绑定空间内的笔记。"""
         from routers import search as search_mod
         tags = tags or []
@@ -158,22 +159,26 @@ def _register_tools(mcp) -> None:
         sids = _space_ids()
         es_sids = [str(s) for s in sids] if sids is not None else None
         with pool.connection() as conn:
-            vec = search_mod._try_embed(q) if mode in ("hybrid", "semantic") else None
-            kw_rows = search_mod._keyword_search(
-                conn, q, tags, "all", sf, sfp, es_sids
-            )
-            sem_rows = (
-                search_mod._semantic_search(conn, vec, tags, "all", sf, sfp)
-                if vec is not None
-                else []
-            )
-            if mode == "semantic":
-                rows = sem_rows or kw_rows
-            elif mode == "keyword":
-                rows = kw_rows
+            # 标签浏览模式：q 空 + tags 非空，与 HTTP /search 一致，不调 LLM/不计费
+            if not q and tags:
+                rows = search_mod._tag_search(conn, tags, "all", sf, sfp)[:limit]
             else:
-                rows = search_mod._rrf_fuse(kw_rows, sem_rows) if sem_rows else kw_rows
-            rows = rows[:limit]
+                vec = search_mod._try_embed(q) if mode in ("hybrid", "semantic") else None
+                kw_rows = search_mod._keyword_search(
+                    conn, q, tags, "all", sf, sfp, es_sids
+                )
+                sem_rows = (
+                    search_mod._semantic_search(conn, vec, tags, "all", sf, sfp)
+                    if vec is not None
+                    else []
+                )
+                if mode == "semantic":
+                    rows = sem_rows or kw_rows
+                elif mode == "keyword":
+                    rows = kw_rows
+                else:
+                    rows = search_mod._rrf_fuse(kw_rows, sem_rows) if sem_rows else kw_rows
+                rows = rows[:limit]
         items = []
         for r in rows:
             items.append({
@@ -192,6 +197,12 @@ def _register_tools(mcp) -> None:
         rows, qa_pairs = qa_mod._retrieve(question, _space_ids())
         sources = [{"id": str(r[0]), "title": r[2], "type": _TYPE_MAP.get(r[1], "link")}
                    for r in rows]
+        if not sources:
+            return json.dumps({
+                "answer": "知识库中没有足够来源回答这个问题。",
+                "sources": [],
+                "generated": False,
+            }, ensure_ascii=False)
         context = qa_mod._build_context(rows, qa_pairs)
         try:
             answer = llm.answer(question, context, None)
@@ -373,17 +384,18 @@ def _register_tools(mcp) -> None:
     @mcp.tool()
     def list_wiki() -> str:
         """主题页列表。返回 JSON：{items:[{slug,title,updated,source_count}]}。
-        仅列 token 绑定空间内的主题页。"""
-        sf, sfp = _space_filter()
+        仅列 token 绑定空间内的主题页。只要还有至少 1 条有效来源就展示该 wiki。"""
+        sf, sfp = _space_filter(alias="wiki_pages")
         with pool.connection() as conn:
             rows = conn.execute(
                 f"""
                 SELECT slug, title, COALESCE(compiled_at, updated_at),
                        COALESCE(array_length(source_note_ids, 1), 0)
-                FROM wiki_pages WHERE NOT EXISTS (
-                    SELECT 1 FROM unnest(source_note_ids) AS sid(note_id)
-                    JOIN notes sn ON sn.id=sid.note_id WHERE sn.deleted_at IS NOT NULL
-                ){sf}
+                FROM wiki_pages WHERE COALESCE(array_length(
+                    (SELECT array_agg(sid.note_id) FROM unnest(source_note_ids) AS sid(note_id)
+                     JOIN notes sn ON sn.id=sid.note_id
+                     WHERE sn.deleted_at IS NULL AND sn.ingest_status='done'), 1), 0) > 0
+                {sf}
                 ORDER BY COALESCE(compiled_at, updated_at) DESC
                 """,
                 sfp,
@@ -397,27 +409,30 @@ def _register_tools(mcp) -> None:
     def get_wiki(slug: str) -> str:
         """主题页详情：结构化 sections + 引用来源 + 观点矛盾。返回 JSON；不存在返回 {error}。
         不在 token 绑定空间内的主题页按不存在处理（不泄露存在性）。"""
-        sf, sfp = _space_filter()
+        wiki_sf, wiki_sfp = _space_filter(alias="wiki_pages")
         with pool.connection() as conn:
             row = conn.execute(
                 f"""
                 SELECT slug, title, COALESCE(compiled_at, updated_at),
                        source_note_ids, sections, conflict FROM wiki_pages
-                WHERE slug = %s AND NOT EXISTS (
-                    SELECT 1 FROM unnest(source_note_ids) AS sid(note_id)
-                    JOIN notes sn ON sn.id=sid.note_id WHERE sn.deleted_at IS NOT NULL
-                ){sf}
+                WHERE slug = %s AND COALESCE(array_length(
+                    (SELECT array_agg(sid.note_id) FROM unnest(source_note_ids) AS sid(note_id)
+                     JOIN notes sn ON sn.id=sid.note_id
+                     WHERE sn.deleted_at IS NULL AND sn.ingest_status='done'), 1), 0) > 0
+                {wiki_sf}
                 """,
-                [slug, *sfp],
+                [slug, *wiki_sfp],
             ).fetchone()
             if row is None:
                 return json.dumps({"error": "主题页不存在"}, ensure_ascii=False)
             slug_, title, updated, source_ids, sections, conflict = row
             sources = []
             if source_ids:
+                note_sf, note_sfp = _space_filter(alias="notes")
                 note_rows = conn.execute(
-                    f"SELECT id, title, source_type FROM notes WHERE id = ANY(%s) AND deleted_at IS NULL{sf}",
-                    [source_ids, *sfp],
+                    f"SELECT id, title, source_type FROM notes "
+                    f"WHERE id = ANY(%s) AND ingest_status='done' AND deleted_at IS NULL{note_sf}",
+                    [source_ids, *note_sfp],
                 ).fetchall()
                 sources = [{"id": str(n[0]), "title": n[1],
                             "type": _TYPE_MAP.get(n[2], "link")} for n in note_rows]

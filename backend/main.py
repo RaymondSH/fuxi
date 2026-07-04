@@ -10,8 +10,11 @@ ingest 整组仅管理员，notes DELETE、wiki compile 等写操作在各 route
 """
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 from config import settings
 from routers import agent, auth, collaboration, connectors, governance, graph, ingest, mcp_admin, notes, qa, search, spaces, system, tags, wiki
@@ -49,8 +52,42 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="fuxi 知识库 API", version=settings.app_version, lifespan=lifespan)
 
+
+def _error_code(status_code: int) -> str:
+    return {
+        400: "bad_request",
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        422: "validation_error",
+        423: "locked",
+        429: "rate_limited",
+        503: "service_unavailable",
+    }.get(status_code, "http_error")
+
+
+@app.exception_handler(HTTPException)
+async def http_error_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    message = exc.detail if isinstance(exc.detail, str) else "请求失败"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": _error_code(exc.status_code), "message": message}},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(
+    _request: Request, _exc: RequestValidationError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"error": {"code": "validation_error", "message": "请求参数不合法"}},
+    )
+
 # CORS：移动端 App（尤其 Expo Web 调试平台）直接访问后端时需要。
-# Web 前端走 Next.js /api 反代同源，不受影响。鉴权走 Bearer JWT，不放凭据进 cookie，故放开源不影响安全。
+# Web 前端走 Next.js /api 反代同源，不受影响；移动端走 Bearer JWT。
 # CORS_ORIGINS 逗号分隔；生产建议收紧到实际域名。
 _origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(

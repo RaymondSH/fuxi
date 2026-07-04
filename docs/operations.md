@@ -33,7 +33,7 @@ sudo -u postgres psql -v ON_ERROR_STOP=1 -d fuxi -f sql/00_init.sql
 ```
 
 已有环境升级前必须先备份，再按尚未执行的 SQL 编号顺序运行迁移。不要在已有数据库上重跑
-`00_init.sql`。SQL 01~33 已覆盖鉴权、审计、空间 ACL、生命周期、治理、连接器、通知和 Agent。
+`00_init.sql`。SQL 01~34 已覆盖鉴权、审计、空间 ACL、生命周期、治理、连接器、通知和 Agent。
 
 后端：
 

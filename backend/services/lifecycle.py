@@ -134,19 +134,35 @@ def refresh_source(note_id: uuid.UUID, actor_id=None) -> None:
     if row is None:
         raise ValueError("该笔记没有可刷新的 URL 来源")
     source_id, url, old_hash = row
+
+    # 抓取阶段单独 try：抓取失败才标 broken（URL 真的不可达）。
     try:
         result = fetcher.fetch(url=url)
-        digest = hashlib.sha256(result.content.encode("utf-8")).hexdigest()
+    except Exception as exc:
         with pool.connection() as conn:
-            if digest == old_hash:
-                conn.execute(
-                    "UPDATE source_documents SET status='active',last_checked_at=NOW(),"
-                    "next_refresh_at=CASE refresh_policy WHEN 'daily' THEN NOW()+INTERVAL '1 day' "
-                    "WHEN 'weekly' THEN NOW()+INTERVAL '7 days' ELSE NULL END,error_msg=NULL WHERE id=%s",
-                    (source_id,),
-                )
-                return
-            analysis = llm.analyze(result.content, title_hint=result.title)
+            conn.execute(
+                "UPDATE source_documents SET status='broken',last_checked_at=NOW(),error_msg=%s WHERE id=%s",
+                (str(exc)[:1000], source_id),
+            )
+        raise
+
+    digest = hashlib.sha256(result.content.encode("utf-8")).hexdigest()
+    # 内容未变：仅刷新检查时间与状态，不调 LLM、不重建索引。
+    with pool.connection() as conn:
+        if digest == old_hash:
+            conn.execute(
+                "UPDATE source_documents SET status='active',last_checked_at=NOW(),"
+                "next_refresh_at=CASE refresh_policy WHEN 'daily' THEN NOW()+INTERVAL '1 day' "
+                "WHEN 'weekly' THEN NOW()+INTERVAL '7 days' ELSE NULL END,error_msg=NULL WHERE id=%s",
+                (source_id,),
+            )
+            return
+
+    # LLM 提炼 + 重建索引在 DB 连接块外执行（慢调用不应占连接池）。
+    # 失败不标 broken（URL 正常，只是分析失败），记 error_msg 待人工或下次重试。
+    try:
+        analysis = llm.analyze(result.content, title_hint=result.title)
+        with pool.connection() as conn:
             save_version(conn, note_id, "refresh", actor_id)
             conn.execute(
                 "UPDATE notes SET title=%s,summary=%s,key_points=%s,content=%s,tags=%s WHERE id=%s",
@@ -164,9 +180,10 @@ def refresh_source(note_id: uuid.UUID, actor_id=None) -> None:
         ingest_worker._link_entities(note_id, analysis.entities)
         reindex(note_id)
     except Exception as exc:
+        # URL 可达但分析失败：保持 active，记错误信息，不重新抛中断调度。
         with pool.connection() as conn:
             conn.execute(
-                "UPDATE source_documents SET status='broken',last_checked_at=NOW(),error_msg=%s WHERE id=%s",
+                "UPDATE source_documents SET status='active',last_checked_at=NOW(),error_msg=%s WHERE id=%s",
                 (str(exc)[:1000], source_id),
             )
         raise

@@ -88,9 +88,16 @@ _USER_COLS = "id, username, email, display_name, role, daily_token_limit, is_act
 
 
 def _to_out(row) -> UserOut:
+    """DB row → UserOut。daily_token_limit 返回有效额度：admin 不限（None）；
+    member 用 users.daily_token_limit，未设则用 DEFAULT_DAILY_TOKEN_LIMIT。
+    """
+    role = row[4]
+    limit = row[5]
+    if role != "admin" and limit is None:
+        limit = settings.default_daily_token_limit
     return UserOut(
         id=row[0], username=row[1], email=row[2], display_name=row[3],
-        role=row[4], daily_token_limit=row[5], is_active=row[6],
+        role=role, daily_token_limit=limit, is_active=row[6],
     )
 
 
@@ -143,12 +150,12 @@ def login(req: LoginRequest, request: Request, response: Response) -> LoginRespo
             "FROM users WHERE username = %s OR email = %s LIMIT 1",
             (ident, ident),
         ).fetchone()
-        # 只在 locked_until 尚未到期时拒绝；过期后清零，避免永久锁号。
+        # 过期锁号先清零（无论密码对错），避免永久锁号；
+        # 但「锁定是否生效」的判定推迟到密码验证之后，避免在密码错时抛 423
+        # 泄露「账号存在且被锁」与「账号不存在/密码错」的区别（契约要求一律 401）。
         locked_active = bool(row is not None and _lock_active(row[9]))
-        if locked_active:
-            raise HTTPException(status_code=423, detail="账号已锁定，请稍后再试")
         attempts_base = row[8] if row is not None else 0
-        if row is not None and row[9] is not None:
+        if row is not None and row[9] is not None and not locked_active:
             conn.execute(
                 "UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = %s",
                 (row[0],),
@@ -156,7 +163,10 @@ def login(req: LoginRequest, request: Request, response: Response) -> LoginRespo
             attempts_base = 0
         # 统一错误文案，避免泄露「账号是否存在」
         if row is None or not auth.verify_password(req.password, row[7]):
-            # 失败递增；达阈值则锁定
+            # 失败递增；达阈值则锁定。
+            # 注意：仅对真实存在的账号递增 —— 对不存在的 identifier 暴力撞库
+            # 不会触发锁定。这是已知权衡：按 identifier/IP 全局限流需引入新中间件，
+            # 超出本次修复范围；配合上面的存在性统一 401，至少不通过响应码泄露账号是否存在。
             if row is not None:
                 attempts = attempts_base + 1
                 if attempts >= settings.login_max_attempts:
@@ -170,8 +180,15 @@ def login(req: LoginRequest, request: Request, response: Response) -> LoginRespo
                         "UPDATE users SET failed_login_attempts = %s WHERE id = %s",
                         (attempts, row[0]),
                     )
+                # HTTPException 会让连接上下文回滚；失败计数属于需要保留的安全状态，
+                # 必须在抛出 401 前显式提交。
+                conn.commit()
             audit.log("login_failed", request=request, user_id=row[0] if row else None, detail={"identifier": ident})
             raise HTTPException(status_code=401, detail="账号或密码错误")
+        # 密码正确：若账号仍处于锁定窗口，此时再抛 423（不再泄露存在性，因为密码错已统一 401）
+        if locked_active:
+            audit.log("login_locked", request=request, user_id=row[0])
+            raise HTTPException(status_code=423, detail="账号已锁定，请稍后再试")
         if not row[6]:  # is_active
             audit.log("login_failed", request=request, user_id=row[0], detail={"reason": "inactive"})
             raise HTTPException(status_code=403, detail="账号已停用")
@@ -245,7 +262,7 @@ def logout(
 def me(user: CurrentUser = Depends(auth.get_current_user)) -> UserOut:
     return UserOut(
         id=user.id, username=user.username, email=user.email, display_name=user.display_name,
-        role=user.role, daily_token_limit=user.daily_token_limit, is_active=user.is_active,
+        role=user.role, daily_token_limit=user.token_limit(), is_active=user.is_active,
     )
 
 

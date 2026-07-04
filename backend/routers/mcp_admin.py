@@ -174,9 +174,12 @@ def verify_token(plain: str) -> tuple[uuid.UUID, uuid.UUID | None] | None:
     """
     if not plain:
         return None
+    prefix = plain[:_PREFIX_LEN]
     with pool.connection() as conn:
         rows = conn.execute(
-            "SELECT id, token_hash, space_id FROM mcp_tokens WHERE is_active = TRUE"
+            "SELECT id, token_hash, space_id FROM mcp_tokens "
+            "WHERE is_active = TRUE AND prefix = %s",
+            (prefix,),
         ).fetchall()
         for tid, token_hash, space_id in rows:
             if verify_password(plain, token_hash):

@@ -5,7 +5,7 @@ import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from db import pool
 from services import audit, connector_crypto, spaces
@@ -24,12 +24,12 @@ class ConnectorCreate(BaseModel):
     space_id: uuid.UUID
     provider: str
     name: str
-    config: dict = {}
+    config: dict = Field(default_factory=dict)
     credentials: dict
 
 
 class ConnectorPatch(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1)
     config: dict | None = None
     credentials: dict | None = None
     status: str | None = None
@@ -83,21 +83,39 @@ def update_connector(
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     with pool.connection() as conn:
-        row = conn.execute("SELECT space_id FROM connector_accounts WHERE id=%s", (connector_id,)).fetchone()
+        row = conn.execute(
+            "SELECT space_id,provider FROM connector_accounts WHERE id=%s",
+            (connector_id,),
+        ).fetchone()
     if row is None: raise HTTPException(status_code=404, detail="连接器不存在")
     spaces.assert_space_role(user, row[0], "space_admin")
     values = req.model_dump(exclude_unset=True)
-    if values.get("status") not in (None, "active", "disabled"):
+    for key in ("name", "config", "credentials", "status"):
+        if key in values and values[key] is None:
+            raise HTTPException(status_code=422, detail=f"{key} 不能为 null")
+    if "status" in values and values["status"] not in ("active", "disabled"):
         raise HTTPException(status_code=422, detail="非法状态")
+    config_keys, credential_keys = _REQUIRED[row[1]]
+    if "config" in values:
+        missing = [key for key in config_keys if not values["config"].get(key)]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"缺少连接器字段：{', '.join(missing)}")
+    if "credentials" in values:
+        missing = [key for key in credential_keys if not values["credentials"].get(key)]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"缺少连接器字段：{', '.join(missing)}")
     sets, params = [], []
     for key in ("name", "status"):
         if key in values:
             sets.append(f"{key}=%s"); params.append(values[key])
     if "config" in values:
         sets.extend(["config=%s::jsonb", "sync_cursor=NULL"]); params.append(json.dumps(values["config"]))
-    if values.get("credentials") is not None:
+    if "credentials" in values:
         sets.extend(["credentials=%s", "sync_cursor=NULL"])
-        params.append(connector_crypto.encrypt(values["credentials"]))
+        try:
+            params.append(connector_crypto.encrypt(values["credentials"]))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     if not sets: return {"id": connector_id}
     with pool.connection() as conn:
         conn.execute(f"UPDATE connector_accounts SET {','.join(sets)},updated_at=NOW() WHERE id=%s",

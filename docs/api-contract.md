@@ -197,6 +197,9 @@
 
 ### `POST /api/search`
 
+关键词、语义与混合检索返回的是最多 100 条候选组成的有界排序窗口，`total`
+表示该窗口内实际可分页的结果数；标签浏览模式使用数据库精确 `COUNT(*)`。
+
 驱动「检索 / 结果」页。同时**写入搜索历史**。
 
 ```json
@@ -467,8 +470,14 @@
 }
 ```
 
-账号或密码错误一律 `401 {"detail":"账号或密码错误"}`（不区分账号是否存在）；账号停用 `403`。
-连续失败达阈值（默认 5 次）后锁定 `423 {"detail":"账号已锁定，请稍后再试"}`，锁定期（默认 15 分钟）内禁止登录。
+`daily_token_limit` 返回**有效额度**：admin 返回 `null`（不限）；member 返回 `users.daily_token_limit`，未设则返回 `DEFAULT_DAILY_TOKEN_LIMIT`。`GET /auth/me` 同此。
+
+账号或密码错误一律
+`401 {"error":{"code":"unauthorized","message":"账号或密码错误"}}`
+（不区分账号是否存在）；账号停用返回 `403`。连续失败达阈值（默认 5 次）后锁定，
+密码正确时返回
+`423 {"error":{"code":"locked","message":"账号已锁定，请稍后再试"}}`。
+锁定期默认 15 分钟；密码错误时仍统一返回 `401`，不通过状态码泄露账号是否存在或是否被锁。
 
 ### `POST /api/auth/refresh` — 刷新 access token（公开）
 
@@ -559,12 +568,14 @@ access 黑名单行在其自然过期后失效（无需清理）；refresh 一�
 | 接口 | 权限 |
 |------|------|
 | `POST /ingest/url`、`POST /ingest/file`、`GET /ingest/jobs` | 目标空间 **editor+**（M2；原 admin only） |
-| `DELETE /notes/{id}`、`POST /notes/{id}/generate-qa` | 该笔记所属空间 **space_admin / editor**（M2；原 admin only） |
+| `DELETE /notes/{id}`、`POST /notes/{id}/generate-qa` | 该笔记所属空间：删除 **space_admin**、生成 Q&A **editor**（M2；原 admin only） |
 | `POST /wiki/compile` | 所有来源笔记同空间 + 调用者该空间 **space_admin** |
 | 检索 / 问答 / 图谱 / 笔记列表·详情 / wiki 读 | 登录即可，结果按用户可见空间过滤（M2） |
 | `GET /search/history`、`GET /qa/history` | 登录；默认仅返回**当前用户**记录；admin 传 `?scope=all` 看全部 |
 
-> **token 配额（已实装）**：`POST /qa`、`POST /qa/stream`、`POST /search`（semantic/hybrid，纯 keyword 不计费）、`POST /notes/{id}/generate-qa`、`POST /wiki/compile` 会把本次 LLM/Embedding 的 token 计入当日用量（`token_usage.operation` = `qa`/`search`/`qa_gen`/`compile`/`ingest`）。请求前若当日累计已达 `daily_token_limit`（member 未设额度则用 `DEFAULT_DAILY_TOKEN_LIMIT`；admin 不限）返回 `429 {"detail":"今日 token 额度（N）已用完，次日 0 点重置"}`。`/qa/stream` 在开流前检查，超额以普通 `429` 返回（不进 SSE 流）。
+> **404 统一**：对单篇笔记或空间无权访问（异空间/非成员）的写操作一律返回 `404`，不返回 `403`，避免通过响应码泄露资源是否存在（与读接口一致）。
+>
+> **token 配额（已实装）**：`POST /qa`、`POST /qa/stream`、`POST /qa/agentic/stream`、`POST /search`（semantic/hybrid，纯 keyword 不计费）、`POST /notes/{id}/generate-qa`、`POST /wiki/compile` 会把本次 LLM/Embedding 的 token 计入当日用量（`token_usage.operation` = `qa` / `qa_stream` / `qa_agentic` / `search_semantic` / `qa_gen` / `compile` / `ingest`）。`POST /governance/scans` 与 `POST /agent/runs` 触发的后台 LLM 调用分别记 `governance_scan` / `agent_plan`，计费给触发者。请求前若当日累计已达 `daily_token_limit`（member 未设额度则用 `DEFAULT_DAILY_TOKEN_LIMIT`；admin 不限）返回 `429 {"error":{"code":"rate_limited","message":"今日 token 额度（N）已用完，次日 0 点重置"}}`。`/qa/stream`、`/qa/agentic/stream` 在开流前检查，超额以普通 `429` 返回（不进 SSE 流）。
 >
 > **MCP 不计入配额**：`/mcp` 走独立 Bearer API token（非 JWT），是系统级 Agent 调用，不归属某个用户、不计入 `token_usage`。
 
@@ -709,11 +720,11 @@ sysadmin）。
 ### 笔记生命周期
 
 - `PATCH /api/notes/{id}`（editor+）：可修改 `title/content/tags/date/authority`，返回 `202`；
-  正文变化时创建持久化 `note_reindex` job。
-- `GET /api/notes/{id}/versions`（viewer+）：返回版本号、变更类型、操作者和时间。
+  仅当 `content` 或 `tags` 变化时创建持久化 `note_reindex` job（纯 title/date/authority 调整不重建索引）。
+- `GET /api/notes/{id}/versions`（viewer+）：返回版本号、变更类型、操作者和时间。`change_type` 取值 `edit/refresh/restore/delete/undelete`。
 - `POST /api/notes/{id}/versions/{version}/restore`（editor+）：保存当前版本后恢复目标快照并重建索引。
 - `DELETE /api/notes/{id}`（space_admin）：软删除，返回 `204`。
-- `POST /api/notes/{id}/restore`（editor+）：恢复软删除笔记并重建索引。
+- `POST /api/notes/{id}/restore`（editor+）：恢复软删除笔记，保存 `undelete` 版本快照后重建索引。
 - `GET /api/notes/trash`（editor+）：列出当前用户可管理空间中的软删除笔记。
 - `POST /api/notes/{id}/refresh`（editor+）：立即检查 URL 来源，返回 `202`。
 - `PATCH /api/notes/{id}/source`（space_admin）：设置 `refresh_policy=manual|daily|weekly`。
@@ -722,13 +733,15 @@ sysadmin）。
 
 ### 治理
 
-- `GET /api/governance/issues?space_id=&status=&type=`：viewer+ 查看空间待办。
-- `POST /api/governance/scans`：`{space_id}`，space_admin 创建 `governance_scan` job。
-- `GET /api/governance/runs?space_id=`：查看扫描记录。
+- `GET /api/governance/issues?space_id=&status=&type=&page=&size=`：viewer+ 查看空间待办，响应带 `{items,total,page,size}`。
+- `POST /api/governance/scans`：`{space_id}`，space_admin 创建 `governance_scan` job。响应 `status` 映射为前端轮询习惯的 `pending`（DB 行 `queued`）。
+- `GET /api/governance/runs?space_id=&page=&size=`：查看扫描记录，响应带 `{items,total,page,size}`；`status` 映射：`queued→pending`、`running→processing`、`done→done`、`failed→failed`。
 - `PATCH /api/governance/issues/{id}`：editor+，请求
   `{status:"resolved|ignored|open", resolution_note?}`。
 
 issue 类型为 `stale/duplicate/conflict/broken_link/missing_tags`，严重度为 `low/medium/high`。
+
+> 治理 run 与扫描 job 用独立状态词表 `queued/running/done/failed`（与 `ingest.status` 的 `pending/processing/done/failed` 不同，因为是独立子系统）；对外响应统一映射到 `pending/processing/done/failed` 便于前端复用轮询逻辑。`governance_scan` job 的 `jobs.stage` 在扫描期间推进 `queued → scan → done`。
 
 ### 深度问答
 
@@ -738,7 +751,9 @@ issue 类型为 `stale/duplicate/conflict/broken_link/missing_tags`，严重度�
 2. `sources`：本次 ACL 范围内的来源
 3. `token`：回答文本分块
 4. `verification`：`{"status":"supported|warning","invalid_citations":[],"message":"..."}`
-5. `done`：`{"generated":true,"mode":"agentic","pii_masked":false}`
+5. `done`：`{"generated":true,"mode":"agentic","pii_masked":false,"masked_answer":"..."}`
+
+> `done` 事件的 `masked_answer` 是对完整答案做 PII 掩码后的版本（手机号/邮箱/身份证/银行卡替换为 `[PII已隐藏]`）；`pii_masked` 表示是否发生了掩码。前端在收到 `done` 后用 `masked_answer` 覆盖流式累积的文本，确保最终展示不含 PII。`/qa/stream` 的 `done` 事件同样带 `masked_answer`。
 
 ---
 
@@ -773,6 +788,12 @@ issue 类型为 `stale/duplicate/conflict/broken_link/missing_tags`，严重度�
 - `POST /api/agent/proposals/{id}/approve`、`/reject`：审批。
 - approve 只入队，执行结果通过 proposal 的 `executed/failed` 状态查看。
 
+执行器白名单仍为五类：`add_tags`、`update_summary`、`refresh_source`、
+`archive_duplicate`、`resolve_issue`。当前规划策略中，`stale` 与 `broken_link`
+只有 URL 来源会生成 `refresh_source`；对 manual/连接器来源不靠重写旧摘要伪装成已更新，
+而是留给人工或连接器增量同步。`archive_duplicate` 执行时重新校验 `other_note_id`
+同空间且未删除。未经 `space_admin` 审批不会写入，审批后仍由确定性执行器再次校验并执行。
+
 ---
 
 ## 字段映射速查（mock → 接口）
@@ -803,5 +824,5 @@ issue 类型为 `stale/duplicate/conflict/broken_link/missing_tags`，严重度�
 4. **问答接口** — RAG 检索 + LLM 生成 + 来源引用，写入 `qa_history`；**SSE 流式已实现**（`POST /qa/stream`）且前端已接入逐字渲染
 5. **API 字段映射** — `published_date→date`、`mode`（含 hybrid/tag）、jobs `queued/running→pending/processing`
 
-> **SQL schema**：M0~M2 为 `sql/01~24`，M3 为 `sql/25~28`，M4 为 `sql/29~33`。
+> **SQL schema**：M0~M2 为 `sql/01~24`，M3 为 `sql/25~28`，M4 为 `sql/29~33`，生命周期修补为 `sql/34`。
 > 详见 `sql/` 目录。

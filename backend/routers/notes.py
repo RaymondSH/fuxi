@@ -342,16 +342,24 @@ def update_note(
         lifecycle.save_version(conn, note_id, "edit", user.id)
         fields = [k for k in values if k in allowed]
         assignments = ", ".join(f"{k} = %s" for k in fields)
+        # 仅正文实际变化时才删除已生成 QA（payload 带 content 但值不变不触发）
+        content_changed = False
+        if "content" in values:
+            old = conn.execute("SELECT content FROM notes WHERE id=%s", (note_id,)).fetchone()
+            content_changed = old is not None and old[0] != values["content"]
         conn.execute(
             f"UPDATE notes SET {assignments} WHERE id = %s AND deleted_at IS NULL",
             [*(values[k] for k in fields), note_id],
         )
-        if "content" in values:
+        if content_changed:
             conn.execute("DELETE FROM generated_qa WHERE note_id=%s", (note_id,))
-    job_id = lifecycle.enqueue_reindex(note_id, user.id)
+    # ES 文档包含 title/tags/content；这些字段变化时都要同步索引。
+    # date/authority 只从 PostgreSQL 读取，无需重建。
+    needs_reindex = any(key in values for key in ("title", "content", "tags"))
+    job_id = lifecycle.enqueue_reindex(note_id, user.id) if needs_reindex else None
     audit.log("note_update", request=request, user_id=user.id, target_type="note",
               target_id=note_id, detail={"fields": sorted(values)})
-    return {"note_id": note_id, "job_id": job_id, "status": "pending"}
+    return {"note_id": note_id, "job_id": job_id, "status": "pending" if job_id else "done"}
 
 
 @router.patch("/{note_id}/source")
@@ -419,6 +427,13 @@ def restore_note(
 ) -> dict:
     spaces.assert_note_role(user, note_id, "editor")
     with pool.connection() as conn:
+        if conn.execute(
+            "SELECT 1 FROM notes WHERE id=%s AND deleted_at IS NOT NULL", (note_id,)
+        ).fetchone() is None:
+            raise HTTPException(status_code=404, detail="已删除笔记不存在")
+        # 恢复前留一个 undelete 版本快照，与 delete/restore 路径一致，
+        # 让版本历史完整记录「软删除 → 恢复」的来回。
+        lifecycle.save_version(conn, note_id, "undelete", user.id)
         cur = conn.execute(
             "UPDATE notes SET deleted_at=NULL,deleted_by=NULL WHERE id=%s AND deleted_at IS NOT NULL",
             (note_id,),
@@ -471,5 +486,6 @@ def delete_note(note_id: uuid.UUID, request: Request, user: CurrentUser = Depend
         )
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="笔记不存在")
+        conn.execute("DELETE FROM generated_qa WHERE note_id=%s", (note_id,))
     lifecycle.reindex(note_id)
     audit.log("note_delete", request=request, user_id=user.id, target_type="note", target_id=note_id)

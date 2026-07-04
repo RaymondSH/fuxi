@@ -91,7 +91,7 @@ Fernet 加密，主密钥仅来自环境变量；远端删除或失权只标记 
 
 ## 6. 数据与代码边界
 
-- SQL 01~33 是数据库 schema 的唯一真相。
+- SQL 01~34 是数据库 schema 的唯一真相。
 - [api-contract.md](api-contract.md) 是前后端接口的唯一真相。
 - `PROGRESS.md` 只记录当前交付状态，不保存阶段实施流水账。
 - `scripts/fuxi.py` 是管理员、维护、索引、演示数据和生产验收的唯一 Python 运维入口。

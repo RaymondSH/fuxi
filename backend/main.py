@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from config import settings
@@ -133,3 +134,9 @@ def health() -> dict:
 # （若 mount 到 /mcp，FastMCP 默认路径会变成 /mcp/mcp）。
 if _mcp_app is not None:
     app.mount("/", _mcp_app)
+
+# 移动端 standalone SPA
+import os
+_mobile_dir = os.path.join(os.path.dirname(__file__), '..', settings.mobile_dir)
+if os.path.isdir(_mobile_dir):
+    app.mount("/m", StaticFiles(directory=_mobile_dir, html=True), name="mobile")

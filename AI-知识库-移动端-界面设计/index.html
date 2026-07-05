@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas — AI 知识库设计概览</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;450;510;550;590&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    body { background: var(--bg); }
+    .index-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 56px 36px 80px;
+    }
+    .head-row {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 36px;
+    }
+    .brand-lg {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .brand-lg svg { width: 28px; height: 28px; color: var(--fg); }
+    .brand-lg .nm { font-size: 18px; font-weight: 590; letter-spacing: -0.012em; }
+    .brand-lg .ver { font-family: var(--font-mono); font-size: 11px; color: var(--muted-2); letter-spacing: 0.04em; }
+    h1.title {
+      font-size: 32px;
+      font-weight: 590;
+      letter-spacing: -0.022em;
+      margin: 14px 0 8px;
+      max-width: 28ch;
+      line-height: 1.15;
+    }
+    .lede {
+      color: var(--muted);
+      font-size: 15px;
+      max-width: 58ch;
+      line-height: 1.6;
+    }
+
+    .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      margin-bottom: 40px;
+    }
+    .summary-strip .cell {
+      padding: 16px 18px;
+      border-right: 1px solid var(--border);
+    }
+    .summary-strip .cell:last-child { border-right: 0; }
+    .summary-strip .lbl {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted-2);
+      margin-bottom: 8px;
+    }
+    .summary-strip .val {
+      font-size: 15.5px;
+      color: var(--fg);
+      font-weight: 510;
+      letter-spacing: -0.005em;
+      line-height: 1.4;
+    }
+    @media (max-width: 720px) { .summary-strip { grid-template-columns: repeat(2, 1fr); } }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+
+    a.tile {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      background: var(--surface);
+      overflow: hidden;
+      transition: border-color .12s, transform .12s;
+      text-decoration: none;
+      color: inherit;
+    }
+    a.tile:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+    .tile .thumb {
+      aspect-ratio: 16 / 10;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+    .tile .thumb svg { width: 100%; height: 100%; display: block; }
+    .tile .body { padding: 14px 16px 16px; }
+    .tile .body .row1 {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 6px;
+    }
+    .tile .body .num {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--muted-2);
+      letter-spacing: 0.08em;
+    }
+    .tile .body .nm {
+      font-weight: 550;
+      letter-spacing: -0.005em;
+      font-size: 15px;
+    }
+    .tile .body .arrow {
+      margin-left: auto;
+      width: 14px; height: 14px; color: var(--muted-2);
+    }
+    .tile .body p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      max-width: 50ch;
+    }
+    .tile .body .tags {
+      display: flex; gap: 5px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .tile .body .tags .tag-chip {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--muted);
+      padding: 1px 6px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+
+    /* Design notes */
+    .notes {
+      margin-top: 56px;
+      padding-top: 28px;
+      border-top: 1px solid var(--border);
+    }
+    .notes h2 {
+      font-size: 18px;
+      font-weight: 590;
+      letter-spacing: -0.012em;
+      margin: 0 0 18px;
+    }
+    .notes .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+    }
+    @media (max-width: 720px) { .notes .grid2 { grid-template-columns: 1fr; } }
+    .notes p {
+      color: var(--fg-2);
+      font-size: 13.5px;
+      line-height: 1.65;
+      margin: 0 0 12px;
+      max-width: 58ch;
+    }
+    .notes ul { padding-left: 18px; margin: 0; color: var(--fg-2); font-size: 13.5px; line-height: 1.7; }
+    .notes li { margin-bottom: 5px; }
+    .notes h3 {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted-2);
+      margin: 0 0 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="index-wrap">
+    <div class="head-row">
+      <div>
+        <div class="brand-lg">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4 L26 10 V22 L16 28 L6 22 V10 Z"/><path d="M16 4 V16"/><path d="M16 16 L26 10"/><path d="M16 16 L6 10"/><path d="M16 16 V28"/></svg>
+          <span class="nm">Atlas</span>
+          <span class="ver">v0.4.2 · 设计原型</span>
+        </div>
+        <h1 class="title">面向个人的 AI 第二大脑</h1>
+        <p class="lede">一款 Web 优先的 AI 知识库产品的高保真界面设计。视觉上走"科技 / 工具型"路线 (Datadog · GitHub 一脉)，结构上把"搜索 + 结果列表"和"图谱 / 卡片网络"做成两个等权的主入口。</p>
+      </div>
+      <div style="display:flex; gap:8px; flex-shrink:0;">
+        <a class="btn" href="home.html">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          打开主界面
+        </a>
+      </div>
+    </div>
+
+    <div class="summary-strip">
+      <div class="cell">
+        <div class="lbl">交互重心</div>
+        <div class="val">搜索 + 结果<span class="muted-2 mono" style="font-size:12px; font-weight:400;"> / </span>图谱</div>
+      </div>
+      <div class="cell">
+        <div class="lbl">受众</div>
+        <div class="val">个人 · second brain</div>
+      </div>
+      <div class="cell">
+        <div class="lbl">视觉方向</div>
+        <div class="val">tech-utility · emerald · violet AI</div>
+      </div>
+      <div class="cell">
+        <div class="lbl">交付</div>
+        <div class="val">5 个核心界面 · 共享设计系统</div>
+      </div>
+    </div>
+
+    <!-- Screens -->
+    <div class="grid">
+      <a class="tile" href="home.html">
+        <div class="thumb">
+          <svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice">
+            <rect width="320" height="200" fill="oklch(98.5% 0.004 250)"/>
+            <rect x="0" y="0" width="58" height="200" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="1"/>
+            <rect x="8" y="14" width="42" height="6" rx="2" fill="oklch(82% 0.012 250)"/>
+            <rect x="8" y="36" width="42" height="5" rx="2" fill="oklch(88% 0.012 250)"/>
+            <rect x="8" y="48" width="36" height="4" rx="2" fill="oklch(91% 0.012 250)"/>
+            <rect x="8" y="60" width="40" height="4" rx="2" fill="oklch(91% 0.012 250)"/>
+            <rect x="8" y="72" width="32" height="4" rx="2" fill="oklch(91% 0.012 250)"/>
+            <rect x="58" y="0" width="262" height="22" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="160" y="6" width="140" height="11" rx="3" fill="oklch(95% 0.005 250)" stroke="oklch(89% 0.01 250)" stroke-width="0.6"/>
+            <rect x="68" y="34" width="240" height="46" rx="6" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <rect x="76" y="42" width="40" height="6" rx="2" fill="oklch(55% 0.17 285)" opacity="0.4"/>
+            <rect x="76" y="56" width="184" height="6" rx="2" fill="oklch(75% 0.012 250)"/>
+            <rect x="76" y="66" width="120" height="5" rx="2" fill="oklch(85% 0.012 250)"/>
+            <g>
+              <rect x="68" y="90" width="58" height="36" rx="4" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+              <rect x="74" y="98" width="22" height="4" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="74" y="108" width="34" height="11" rx="2" fill="oklch(56% 0.15 150)"/>
+              <rect x="130" y="90" width="58" height="36" rx="4" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+              <rect x="136" y="98" width="22" height="4" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="136" y="108" width="30" height="11" rx="2" fill="oklch(35% 0.02 250)"/>
+              <rect x="192" y="90" width="58" height="36" rx="4" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+              <rect x="198" y="98" width="22" height="4" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="198" y="108" width="30" height="11" rx="2" fill="oklch(35% 0.02 250)"/>
+              <rect x="254" y="90" width="58" height="36" rx="4" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+              <rect x="260" y="98" width="22" height="4" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="260" y="108" width="30" height="11" rx="2" fill="oklch(35% 0.02 250)"/>
+            </g>
+            <rect x="68" y="138" width="160" height="54" rx="6" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <rect x="76" y="148" width="80" height="5" rx="2" fill="oklch(75% 0.012 250)"/>
+            <rect x="76" y="160" width="140" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="76" y="168" width="120" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="76" y="176" width="100" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="234" y="138" width="78" height="54" rx="6" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <rect x="242" y="148" width="40" height="5" rx="2" fill="oklch(55% 0.17 285)" opacity="0.4"/>
+            <rect x="242" y="160" width="64" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="242" y="168" width="56" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+          </svg>
+        </div>
+        <div class="body">
+          <div class="row1">
+            <span class="num">01</span>
+            <span class="nm">主界面</span>
+            <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </div>
+          <p>欢迎+状态条+提问 + 最近 + Today Digest + 连接器健康。"快速捕捉"是一个 textarea，可问可贴。</p>
+          <div class="tags">
+            <span class="tag-chip">cmd-k</span>
+            <span class="tag-chip">digest</span>
+            <span class="tag-chip">connectors</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="tile" href="search.html">
+        <div class="thumb">
+          <svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice">
+            <rect width="320" height="200" fill="oklch(98.5% 0.004 250)"/>
+            <rect x="0" y="0" width="58" height="200" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="1"/>
+            <rect x="58" y="0" width="262" height="22" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="68" y="34" width="174" height="26" rx="6" fill="#fff" stroke="oklch(82% 0.012 250)" stroke-width="1.2"/>
+            <rect x="78" y="44" width="120" height="6" rx="2" fill="oklch(35% 0.02 250)"/>
+            <rect x="252" y="34" width="60" height="26" rx="6" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <rect x="68" y="68" width="174" height="60" rx="6" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <line x1="68" y1="68" x2="68" y2="128" stroke="oklch(55% 0.17 285)" stroke-width="2"/>
+            <rect x="76" y="76" width="28" height="4" rx="1" fill="oklch(55% 0.17 285)" opacity="0.5"/>
+            <rect x="76" y="88" width="156" height="5" rx="2" fill="oklch(40% 0.02 250)"/>
+            <rect x="76" y="100" width="148" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="76" y="108" width="160" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="76" y="116" width="120" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <!-- result rows -->
+            <rect x="68" y="138" width="174" height="22" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.4"/>
+            <rect x="76" y="144" width="90" height="4" rx="1" fill="oklch(35% 0.02 250)"/>
+            <rect x="76" y="152" width="140" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="68" y="160" width="174" height="22" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.4"/>
+            <rect x="76" y="166" width="90" height="4" rx="1" fill="oklch(35% 0.02 250)"/>
+            <rect x="76" y="174" width="120" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="252" y="68" width="60" height="124" rx="6" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <rect x="258" y="76" width="34" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+            <g>
+              <rect x="258" y="84" width="3" height="14" fill="oklch(82% 0.07 150)"/><rect x="263" y="78" width="3" height="20" fill="oklch(82% 0.07 150)"/><rect x="268" y="82" width="3" height="16" fill="oklch(82% 0.07 150)"/><rect x="273" y="74" width="3" height="24" fill="oklch(82% 0.07 150)"/><rect x="278" y="80" width="3" height="18" fill="oklch(56% 0.15 150)"/><rect x="283" y="72" width="3" height="26" fill="oklch(56% 0.15 150)"/><rect x="288" y="76" width="3" height="22" fill="oklch(56% 0.15 150)"/><rect x="293" y="68" width="3" height="30" fill="oklch(56% 0.15 150)"/>
+            </g>
+            <rect x="258" y="108" width="48" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+            <rect x="258" y="118" width="40" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+            <rect x="258" y="128" width="36" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+          </svg>
+        </div>
+        <div class="body">
+          <div class="row1">
+            <span class="num">02</span>
+            <span class="nm">搜索 + AI 答案</span>
+            <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </div>
+          <p>顶部是 AI 综合答复 + 引用卡片，下面是原始命中。BM25/向量/混合三档可切，右侧带时间直方图筛选。</p>
+          <div class="tags">
+            <span class="tag-chip">citations</span>
+            <span class="tag-chip">hybrid</span>
+            <span class="tag-chip">facets</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="tile" href="graph.html">
+        <div class="thumb">
+          <svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <radialGradient id="ih" cx="50%" cy="50%" r="55%">
+                <stop offset="0%" stop-color="oklch(55% 0.17 285)" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="oklch(55% 0.17 285)" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <rect width="320" height="200" fill="oklch(96.5% 0.005 250)"/>
+            <g stroke="oklch(91% 0.005 250)" stroke-width="0.5">
+              <path d="M0 30 H320 M0 60 H320 M0 90 H320 M0 120 H320 M0 150 H320 M0 180 H320 M30 0 V200 M60 0 V200 M90 0 V200 M120 0 V200 M150 0 V200 M180 0 V200 M210 0 V200 M240 0 V200 M270 0 V200 M300 0 V200"/>
+            </g>
+            <rect x="0" y="0" width="46" height="200" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="6" y="14" width="34" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="6" y="22" width="30" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="6" y="30" width="32" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="6" y="42" width="34" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="6" y="50" width="26" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="266" y="0" width="54" height="200" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="272" y="14" width="40" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="272" y="22" width="30" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="272" y="36" width="40" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+            <rect x="272" y="44" width="32" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <circle cx="156" cy="100" r="55" fill="url(#ih)"/>
+            <!-- edges -->
+            <g stroke="oklch(58% 0.012 250)" stroke-width="0.6" fill="none">
+              <path d="M156 100 L100 60"/>
+              <path d="M156 100 L210 60"/>
+              <path d="M156 100 L100 144"/>
+              <path d="M156 100 L210 144"/>
+              <path d="M156 100 L80 100"/>
+              <path d="M156 100 L232 100"/>
+            </g>
+            <g stroke="oklch(55% 0.17 285)" stroke-width="0.5" stroke-dasharray="2 3" opacity="0.6" fill="none">
+              <path d="M100 60 Q140 80 100 144"/>
+              <path d="M210 60 Q170 80 210 144"/>
+            </g>
+            <!-- nodes -->
+            <g>
+              <circle cx="100" cy="60" r="5" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)"/>
+              <circle cx="210" cy="60" r="6" fill="oklch(72% 0.10 285)" stroke="oklch(45% 0.17 285)"/>
+              <circle cx="100" cy="144" r="5" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)"/>
+              <circle cx="210" cy="144" r="5" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)"/>
+              <circle cx="80" cy="100" r="4" fill="oklch(86% 0.08 150)" stroke="oklch(56% 0.15 150)"/>
+              <circle cx="232" cy="100" r="4" fill="oklch(86% 0.08 150)" stroke="oklch(56% 0.15 150)"/>
+              <circle cx="156" cy="100" r="11" fill="oklch(55% 0.17 285)"/>
+              <text x="156" y="103" text-anchor="middle" fill="white" font-size="6.5" font-family="Inter" font-weight="600">SAE</text>
+            </g>
+          </svg>
+        </div>
+        <div class="body">
+          <div class="row1">
+            <span class="num">03</span>
+            <span class="nm">知识图谱</span>
+            <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </div>
+          <p>力导向布局 + 焦点子图。三类连边分别表示反向链接、语义相似、AI 推断关系。右侧 inspector 列邻居和"建议的下一跳"。</p>
+          <div class="tags">
+            <span class="tag-chip">clusters</span>
+            <span class="tag-chip">backlinks</span>
+            <span class="tag-chip">ai-suggested</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="tile" href="note.html">
+        <div class="thumb">
+          <svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice">
+            <rect width="320" height="200" fill="oklch(98.5% 0.004 250)"/>
+            <rect x="0" y="0" width="42" height="200" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="1"/>
+            <rect x="42" y="0" width="220" height="22" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="42" y="22" width="48" height="178" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="48" y="32" width="32" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+            <rect x="48" y="42" width="34" height="3" rx="1" fill="oklch(35% 0.02 250)"/>
+            <rect x="48" y="50" width="26" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="48" y="58" width="28" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="48" y="66" width="30" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="48" y="78" width="26" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <!-- reader -->
+            <rect x="100" y="32" width="120" height="7" rx="1" fill="oklch(20% 0.02 250)"/>
+            <rect x="100" y="42" width="100" height="7" rx="1" fill="oklch(20% 0.02 250)"/>
+            <rect x="100" y="56" width="138" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="100" y="62" width="130" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="100" y="74" width="140" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="100" y="80" width="120" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="100" y="86" width="138" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="100" y="92" width="100" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <!-- callout -->
+            <rect x="100" y="104" width="138" height="18" rx="2" fill="oklch(95% 0.005 250)" stroke="oklch(91% 0.008 250)"/>
+            <rect x="106" y="110" width="120" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="106" y="116" width="100" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="100" y="130" width="138" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="100" y="136" width="130" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <rect x="100" y="142" width="120" height="3" rx="1" fill="oklch(75% 0.012 250)"/>
+            <!-- AI assist -->
+            <rect x="262" y="22" width="58" height="178" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="268" y="32" width="46" height="20" rx="3" fill="oklch(95% 0.005 250)"/>
+            <rect x="272" y="36" width="38" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="272" y="42" width="32" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="268" y="56" width="46" height="26" rx="3" fill="oklch(96% 0.04 285)"/>
+            <line x1="268" y1="56" x2="268" y2="82" stroke="oklch(55% 0.17 285)" stroke-width="1"/>
+            <rect x="274" y="62" width="34" height="3" rx="1" fill="oklch(45% 0.17 285)"/>
+            <rect x="274" y="68" width="36" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="274" y="74" width="30" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="268" y="160" width="46" height="32" rx="3" fill="oklch(98% 0.004 250)" stroke="oklch(91% 0.008 250)"/>
+            <rect x="272" y="166" width="38" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="272" y="172" width="30" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+          </svg>
+        </div>
+        <div class="body">
+          <div class="row1">
+            <span class="num">04</span>
+            <span class="nm">笔记详情 + AI 侧栏</span>
+            <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </div>
+          <p>三栏：大纲/正文/AI 助手。正文用衬线 Source Serif 4，wikilink、callout、引用标号都是真实的设计组件。右侧的 AI 始终知道当前笔记和反向链接。</p>
+          <div class="tags">
+            <span class="tag-chip">backlinks</span>
+            <span class="tag-chip">ai-sidebar</span>
+            <span class="tag-chip">scoped-context</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="tile" href="settings.html">
+        <div class="thumb">
+          <svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice">
+            <rect width="320" height="200" fill="oklch(98.5% 0.004 250)"/>
+            <rect x="0" y="0" width="42" height="200" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="1"/>
+            <rect x="42" y="0" width="42" height="200" fill="#fff" stroke="oklch(91% 0.008 250)" stroke-width="0.6"/>
+            <rect x="48" y="14" width="30" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+            <rect x="48" y="24" width="26" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="46" y="32" width="32" height="12" rx="2" fill="oklch(95% 0.005 250)"/>
+            <rect x="50" y="38" width="22" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="48" y="50" width="22" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="48" y="58" width="20" height="3" rx="1" fill="oklch(91% 0.012 250)"/>
+            <rect x="84" y="0" width="236" height="200" fill="oklch(98.5% 0.004 250)"/>
+            <rect x="94" y="20" width="60" height="5" rx="1" fill="oklch(20% 0.02 250)"/>
+            <rect x="94" y="32" width="120" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <!-- index card -->
+            <rect x="94" y="44" width="216" height="40" rx="4" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <g>
+              <rect x="100" y="50" width="50" height="28" rx="2" fill="oklch(95% 0.005 250)"/>
+              <rect x="104" y="56" width="14" height="2" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="104" y="62" width="22" height="6" rx="1" fill="oklch(35% 0.02 250)"/>
+              <rect x="154" y="50" width="50" height="28" rx="2" fill="oklch(95% 0.005 250)"/>
+              <rect x="158" y="56" width="14" height="2" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="158" y="62" width="22" height="6" rx="1" fill="oklch(35% 0.02 250)"/>
+              <rect x="208" y="50" width="50" height="28" rx="2" fill="oklch(95% 0.005 250)"/>
+              <rect x="212" y="56" width="14" height="2" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="212" y="62" width="22" height="6" rx="1" fill="oklch(35% 0.02 250)"/>
+              <rect x="262" y="50" width="50" height="28" rx="2" fill="oklch(95% 0.005 250)"/>
+              <rect x="266" y="56" width="14" height="2" rx="1" fill="oklch(82% 0.012 250)"/>
+              <rect x="266" y="62" width="22" height="6" rx="1" fill="oklch(35% 0.02 250)"/>
+            </g>
+            <!-- model picker -->
+            <rect x="94" y="96" width="40" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="94" y="106" width="104" height="32" rx="3" fill="#fff" stroke="oklch(35% 0.02 250)" stroke-width="1"/>
+            <rect x="100" y="114" width="20" height="3" rx="1" fill="oklch(56% 0.15 150)"/>
+            <rect x="100" y="122" width="80" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="100" y="130" width="64" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <rect x="206" y="106" width="104" height="32" rx="3" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <rect x="212" y="114" width="20" height="3" rx="1" fill="oklch(82% 0.012 250)"/>
+            <rect x="212" y="122" width="80" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+            <rect x="212" y="130" width="64" height="3" rx="1" fill="oklch(85% 0.012 250)"/>
+            <!-- connectors -->
+            <rect x="94" y="148" width="216" height="44" rx="4" fill="#fff" stroke="oklch(91% 0.008 250)"/>
+            <g>
+              <rect x="100" y="154" width="12" height="12" rx="2" fill="oklch(35% 0.02 250)"/>
+              <rect x="116" y="156" width="30" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+              <rect x="116" y="162" width="60" height="2" rx="1" fill="oklch(85% 0.012 250)"/>
+              <rect x="100" y="174" width="12" height="12" rx="2" fill="oklch(58% 0.18 50)"/>
+              <rect x="116" y="176" width="30" height="3" rx="1" fill="oklch(40% 0.02 250)"/>
+              <rect x="116" y="182" width="50" height="2" rx="1" fill="oklch(85% 0.012 250)"/>
+              <rect x="280" y="176" width="22" height="8" rx="3" fill="oklch(96% 0.05 75)"/>
+            </g>
+          </svg>
+        </div>
+        <div class="body">
+          <div class="row1">
+            <span class="num">05</span>
+            <span class="nm">设置</span>
+            <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </div>
+          <p>索引状态在最显眼的位置；下面是模型选择卡片、连接器、快捷键、外观、隐私。"将发送的内容"开关把"隐私"做成可执行的选项而不是法律页。</p>
+          <div class="tags">
+            <span class="tag-chip">indexing</span>
+            <span class="tag-chip">models</span>
+            <span class="tag-chip">privacy</span>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <!-- Design notes -->
+    <section class="notes">
+      <h2>关键设计决策</h2>
+      <div class="grid2">
+        <div>
+          <h3>导航 &amp; 信息结构</h3>
+          <p>顶层只有 4 条主路径——主界面、搜索、知识图谱、所有笔记——加一个固定可见的 ⌘K 命令栏。搜索和图谱是<b style="color:var(--fg)">对等的两个浏览器</b>而不是"图谱藏在 power user 菜单里"。这呼应你选的两种主交互。</p>
+          <p>侧栏用印刷感的小型 mono 来标记 SECTION、计数和快捷键。这是 tech-utility 视觉系统里最强的"密度即信息"信号。</p>
+        </div>
+        <div>
+          <h3>AI 始终带"出处"</h3>
+          <p>所有 AI 生成内容用左侧紫色细条 + 紫色小标的方式包裹，引用以 mono 数字 chip <sup class="cite">1</sup><sup class="cite">2</sup> 的形态嵌入正文，hover/click 跳转到原始来源卡片。这一处理同时表达了两件事：</p>
+          <ul>
+            <li>AI 内容和人工笔记<b style="color:var(--fg)">视觉上可区分</b>，避免污染你的真实记录。</li>
+            <li>引用永远是<b style="color:var(--fg)">一等公民</b>——这是个人知识库相比通用聊天产品的核心差异化。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>检索 = BM25 + 向量 + AI 答复</h3>
+          <p>搜索页同时展示「Atlas 答复」「原始命中（带 BM25 / 向量 / 混合分）」「时间直方图」三层。让你能从"我要个答案"到"我想自己看一遍命中"无缝切换。</p>
+          <p>每个命中显示三个分数，是 power user 的可观测性，也是产品对 AI 答案可信度的承诺。</p>
+        </div>
+        <div>
+          <h3>图谱不止是装饰</h3>
+          <p>图谱页里三种边、AI 推断关系单独着色，节点 inspector 还会列出"建议的下一跳"——比如"与 agentic memory 集群桥接 +3 个潜在连边"、"合并候选：2 个标题近义的草稿"。让图谱从"漂亮的星座"变成一个<b style="color:var(--fg)">可操作的知识库管家</b>。</p>
+        </div>
+        <div>
+          <h3>笔记 = 阅读 + 编辑 + 询问 一体</h3>
+          <p>正文用衬线 (Source Serif 4) 拉开阅读感，wikilink 用紫色 underline-block 而不是蓝色超链接；callout、blockquote、代码块都是真实组件。右侧 AI 助手默认"上下文 = 本笔记"，可一键扩展到"反向链接 / 整个标签"。</p>
+        </div>
+        <div>
+          <h3>设置页把抽象的东西具体化</h3>
+          <p>"索引状态"放在顶部，4 个 mono 大数字 + 进度条，从"系统设置"变成"系统体检"。模型选择是 4 张卡片含 token 计价。隐私一栏有"在提问前显示将发送的内容"这种可执行开关，而不是一段法律免责声明。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="notes" style="border-top: 1px solid var(--border);">
+      <h2>视觉系统</h2>
+      <div class="grid2">
+        <div>
+          <h3>调色板</h3>
+          <ul style="list-style: none; padding: 0;">
+            <li style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--border);"><span style="width:18px;height:18px;border-radius:3px;background:oklch(98.5% 0.004 250);border:1px solid var(--border);"></span><span class="mono" style="font-size:11.5px;color:var(--muted);">--bg</span> <span style="margin-left:auto;color:var(--fg-2)">页面底层</span></li>
+            <li style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--border);"><span style="width:18px;height:18px;border-radius:3px;background:#fff;border:1px solid var(--border);"></span><span class="mono" style="font-size:11.5px;color:var(--muted);">--surface</span> <span style="margin-left:auto;color:var(--fg-2)">卡片 / 模块</span></li>
+            <li style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--border);"><span style="width:18px;height:18px;border-radius:3px;background:oklch(20% 0.02 250);"></span><span class="mono" style="font-size:11.5px;color:var(--muted);">--fg</span> <span style="margin-left:auto;color:var(--fg-2)">正文 / 强对比</span></li>
+            <li style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--border);"><span style="width:18px;height:18px;border-radius:3px;background:oklch(56% 0.15 150);"></span><span class="mono" style="font-size:11.5px;color:var(--muted);">--accent · emerald</span> <span style="margin-left:auto;color:var(--fg-2)">同步 / 索引 / OK</span></li>
+            <li style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--border);"><span style="width:18px;height:18px;border-radius:3px;background:oklch(55% 0.17 285);"></span><span class="mono" style="font-size:11.5px;color:var(--muted);">--ai · violet</span> <span style="margin-left:auto;color:var(--fg-2)">AI 生成内容</span></li>
+            <li style="display:flex;align-items:center;gap:10px;padding:6px 0;"><span style="width:18px;height:18px;border-radius:3px;background:oklch(72% 0.16 75);"></span><span class="mono" style="font-size:11.5px;color:var(--muted);">--warn</span> <span style="margin-left:auto;color:var(--fg-2)">待办 / 需修复</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>字体与排版</h3>
+          <p>UI 使用 Inter / 系统 sans，搭配 JetBrains Mono 承载所有「ID/路径/计数/相似度/快捷键」——这是 tech-utility 的灵魂。笔记正文换成 Source Serif 4 拉开阅读感。所有数字使用 <code>font-variant-numeric: tabular-nums</code>，对齐密度。</p>
+          <p>三档字重：450（正文）、510（UI 标签）、590（标题）。从不使用 700+ 的 bold。</p>
+          <h3 style="margin-top: 18px;">克制 &amp; 节奏</h3>
+          <p>整套设计严格遵守"每屏 ≤ 2 处 accent 使用"。强调色专属于"已索引/同步"这类语义化状态；AI 紫专属于 AI 生成内容；其他一律是中性灰阶。没有渐变背景、没有 emoji 功能图标、没有左侧色条圆角卡片这种 AI 套版。</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

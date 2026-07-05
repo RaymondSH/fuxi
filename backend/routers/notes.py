@@ -357,6 +357,16 @@ def update_note(
     # date/authority 只从 PostgreSQL 读取，无需重建。
     needs_reindex = any(key in values for key in ("title", "content", "tags"))
     job_id = lifecycle.enqueue_reindex(note_id, user.id) if needs_reindex else None
+    # 仅标题/正文/标签（内容性字段）变化才发订阅通知，避免改 authority/date 刷屏。
+    if needs_reindex:
+        with pool.connection() as conn:
+            row = conn.execute(
+                "SELECT space_id, title FROM notes WHERE id=%s", (note_id,)
+            ).fetchone()
+        if row and row[0] is not None:
+            from services import distribution
+            distribution.emit_change(row[0], note_id, "updated", row[1] or "笔记已更新",
+                                     {"fields": sorted(values)})
     audit.log("note_update", request=request, user_id=user.id, target_type="note",
               target_id=note_id, detail={"fields": sorted(values)})
     return {"note_id": note_id, "job_id": job_id, "status": "pending" if job_id else "done"}
@@ -441,6 +451,15 @@ def restore_note(
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="已删除笔记不存在")
     job_id = lifecycle.enqueue_reindex(note_id, user.id)
+    # 恢复笔记发「恢复」通知给空间订阅者。
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT space_id, title FROM notes WHERE id=%s", (note_id,)
+        ).fetchone()
+    if row and row[0] is not None:
+        from services import distribution
+        distribution.emit_change(row[0], note_id, "restored", row[1] or "笔记已恢复",
+                                 {"restored_by": str(user.id)})
     audit.log("note_restore", request=request, user_id=user.id,
               target_type="note", target_id=note_id)
     return {"note_id": note_id, "job_id": job_id, "status": "pending"}

@@ -1,0 +1,14 @@
+{
+  "name": "Atlas 知识库",
+  "short_name": "Atlas",
+  "description": "AI 知识库移动端",
+  "start_url": "mobile.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fbf1e9",
+  "theme_color": "#fbf1e9",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -18,7 +18,7 @@ import uuid
 from urllib.parse import urlparse
 
 from db import pool
-from services import chunker, embedder, es, fetcher, llm, quota, storage, usage
+from services import chunker, distribution, embedder, es, fetcher, llm, quota, storage, usage
 from services.logging import get_logger
 
 log = get_logger("ingest")
@@ -165,6 +165,9 @@ def _process(note_id: uuid.UUID, *, actor_id: uuid.UUID | None = None, space_id=
 
         _mark_status(note_id, "done")
         _update_job(note_id, status="done", stage="done", progress=100)
+        # 入库完成发「新增」通知给空间订阅者（连接器路径在 connector_worker 自行发，不走这里）。
+        # 脚本/迁移场景 space_id 可能为 NULL（无空间归属），跳过通知。
+        _notify_created(note_id, space_id)
         log.info("ingest done", extra={"event": "ingest_done", "note_id": str(note_id)})
     except Exception as exc:  # noqa: BLE001 — 入库失败要落库，不能吞
         _fail(note_id, str(exc))
@@ -307,6 +310,24 @@ def _link_entities(note_id, entities) -> None:
 def _mark_status(note_id, status: str) -> None:
     with pool.connection() as conn:
         conn.execute("UPDATE notes SET ingest_status = %s WHERE id = %s", (status, note_id))
+
+
+def _notify_created(note_id: uuid.UUID, space_id) -> None:
+    """入库成功后给空间订阅者发「新增」通知。
+
+    space_id 为 NULL（脚本/迁移无空间归属）时跳过 —— subscriptions 绑定 space_id，
+    无空间的笔记无法匹配任何订阅。连接器入库走 connector_worker 自行发通知，不经此函数。
+    """
+    if space_id is None:
+        return
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT title FROM notes WHERE id=%s", (note_id,)
+        ).fetchone()
+    if row is None:
+        return
+    distribution.emit_change(space_id, note_id, "created", row[0] or "新增笔记",
+                             {"source": "ingest"})
 
 
 def _fail(note_id, msg: str) -> None:

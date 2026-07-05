@@ -1,0 +1,32 @@
+{
+  "kind": "critique-panel",
+  "score": 4.2,
+  "axes": {
+    "clarity": {
+      "score": 4.5,
+      "notes": "五个核心任务边界明确，搜索入口在首页首屏占据最高优先级。"
+    },
+    "hierarchy": {
+      "score": 4.3,
+      "notes": "每页只有一个主要操作，底部导航保持跨页面一致。"
+    },
+    "typography": {
+      "score": 4.1,
+      "notes": "沿用 Atlas 紧凑工具型字阶，标题负字距，元数据使用等宽字体。"
+    },
+    "motion": {
+      "score": 4,
+      "notes": "按钮按压、开关状态与操作反馈均有轻量过渡，未加入干扰阅读的装饰动画。"
+    },
+    "brand": {
+      "score": 4.4,
+      "notes": "冷白中性色、翡翠同步语义与紫色 AI 语义均从 Web 端完整继承。"
+    }
+  },
+  "design_review": {
+    "philosophy": 4.5,
+    "execution": 4.1,
+    "specificity": 4.5,
+    "restraint": 4.4
+  }
+}

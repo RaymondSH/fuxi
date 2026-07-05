@@ -96,5 +96,8 @@ class Settings:
     )
     connector_secret_key: str = os.getenv("CONNECTOR_SECRET_KEY", "")
 
+    # 移动端 standalone SPA 目录（用于 FastAPI 静态挂载）
+    mobile_dir: str = os.getenv("MOBILE_DIR", "AI-知识库-移动端-界面设计")
+
 
 settings = Settings()

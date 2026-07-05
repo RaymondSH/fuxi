@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas — 搜索</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;450;510;550;590&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .search-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 24px;
+    }
+    @media (max-width: 1100px) { .search-shell { grid-template-columns: 1fr; } }
+
+    .search-input-card {
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--r-lg);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow-pop);
+    }
+    .search-input-card .ico {
+      width: 18px; height: 18px; color: var(--muted);
+      flex-shrink: 0;
+    }
+    .search-input-card input {
+      border: 0;
+      outline: 0;
+      width: 100%;
+      font-size: 18px;
+      font-weight: 510;
+      letter-spacing: -0.01em;
+      color: var(--fg);
+      background: transparent;
+    }
+    .search-input-card .filters {
+      display: flex; gap: 6px;
+    }
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 4px;
+      background: var(--surface-2);
+      font-size: 11.5px;
+      color: var(--fg-2);
+      font-family: var(--font-mono);
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .filter-chip:hover { border-color: var(--border-strong); }
+    .filter-chip .x {
+      margin-left: 1px;
+      color: var(--muted-2);
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .result-tabs {
+      display: flex;
+      gap: 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 18px;
+    }
+    .result-tabs .tab {
+      padding: 9px 0;
+      font-size: 13px;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      cursor: pointer;
+      letter-spacing: -0.002em;
+      display: inline-flex; align-items: center; gap: 7px;
+    }
+    .result-tabs .tab .num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted-2);
+    }
+    .result-tabs .tab.on {
+      color: var(--fg);
+      border-bottom-color: var(--fg);
+      font-weight: 510;
+    }
+    .result-tabs .tab.on .num { color: var(--fg-2); }
+
+    /* AI answer card */
+    .ai-answer {
+      margin-bottom: 22px;
+      padding: 20px 22px 18px 26px;
+    }
+    .ai-answer h2 {
+      font-size: 19px;
+      font-weight: 590;
+      letter-spacing: -0.015em;
+      margin: 0 0 10px;
+      color: var(--fg);
+      line-height: 1.35;
+    }
+    .ai-answer p {
+      margin: 0 0 9px;
+      color: var(--fg-2);
+      font-size: 14px;
+      line-height: 1.65;
+      max-width: 70ch;
+    }
+    .ai-answer ul {
+      margin: 6px 0 12px;
+      padding-left: 18px;
+      color: var(--fg-2);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+    .ai-answer ul li { margin-bottom: 4px; }
+    .ai-answer .ai-foot {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .ai-answer .ai-foot .meta {
+      margin-right: auto;
+      display: flex; gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .ai-answer .ai-foot .meta b { color: var(--fg-2); font-weight: 510; }
+
+    /* Sources strip */
+    .sources-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+    @media (max-width: 900px) { .sources-strip { grid-template-columns: repeat(2, 1fr); } }
+    .src-card {
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: border-color .12s, background .12s;
+      min-width: 0;
+    }
+    .src-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .src-card .h {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 6px;
+    }
+    .src-card .h .n {
+      width: 16px; height: 16px;
+      background: var(--ai-bg);
+      color: var(--ai);
+      border-radius: 3px;
+      display: grid; place-items: center;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+    .src-card .h .typ {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted-2);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .src-card .t {
+      font-size: 12.5px;
+      font-weight: 510;
+      color: var(--fg);
+      letter-spacing: -0.005em;
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .src-card .d {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--muted);
+    }
+
+    /* Result list */
+    .results .res {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .results .res:hover { background: var(--surface-2); padding-left: 8px; padding-right: 8px; margin: 0 -8px; border-radius: var(--r); }
+    .results .res .h {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 4px;
+    }
+    .results .res .h .title {
+      font-size: 15px;
+      font-weight: 550;
+      color: var(--fg);
+      letter-spacing: -0.005em;
+    }
+    .results .res .h .path {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted-2);
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    .results .res .snippet {
+      color: var(--fg-2);
+      font-size: 13.5px;
+      line-height: 1.55;
+      max-width: 80ch;
+      margin: 0;
+    }
+    .results .res .snippet mark {
+      background: oklch(94% 0.08 150);
+      color: var(--fg);
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+    .results .res .foot {
+      display: flex; gap: 10px;
+      margin-top: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .results .res .foot .score {
+      color: var(--accent);
+      font-weight: 510;
+    }
+    .results .res .tags { display: flex; gap: 4px; }
+
+    /* Right column refine */
+    .refine .group {
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .refine .group:last-child { border-bottom: 0; }
+    .refine .glabel {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted-2);
+      margin-bottom: 10px;
+    }
+    .check {
+      display: flex; align-items: center; gap: 9px;
+      padding: 4px 0;
+      font-size: 13px;
+      color: var(--fg-2);
+      cursor: pointer;
+    }
+    .check input { accent-color: var(--accent); }
+    .check .ct {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted-2);
+    }
+
+    .histo {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 2px;
+      align-items: end;
+      height: 36px;
+      margin-bottom: 6px;
+    }
+    .histo span {
+      background: oklch(82% 0.06 150);
+      border-radius: 1.5px 1.5px 0 0;
+    }
+    .histo span.on { background: var(--accent); }
+    .histo-foot {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted-2);
+      display: flex; justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4 L26 10 V22 L16 28 L6 22 V10 Z"/><path d="M16 4 V16" /><path d="M16 16 L26 10" /><path d="M16 16 L6 10" /><path d="M16 16 V28" /></svg>
+        <b>Atlas</b><span class="ver">0.4.2</span>
+      </div>
+      <a class="nav" href="home.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M5 10v10h14V10"/></svg> 主界面</a>
+      <a class="nav active" href="search.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg> 搜索<span class="count">⌘K</span></a>
+      <a class="nav" href="graph.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="18" r="2.2"/><circle cx="18" cy="14" r="1.6"/><path d="M7.6 7.5 L11 16.4"/><path d="M16.6 7.7 L12.8 16.5"/><path d="M16.7 13 L13.5 17"/></svg> 知识图谱</a>
+      <a class="nav" href="note.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7"/><path d="M9 16h7"/><path d="M9 8h4"/></svg> 所有笔记<span class="count">1,284</span></a>
+
+      <div class="sect">最近搜索</div>
+      <div class="tag"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;color:var(--muted-2)"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 7v5l3 2"/></svg> sparse autoencoders <span class="count">42</span></div>
+      <div class="tag"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;color:var(--muted-2)"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 7v5l3 2"/></svg> linear retrospective <span class="count">8</span></div>
+      <div class="tag"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;color:var(--muted-2)"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 7v5l3 2"/></svg> agentic memory <span class="count">31</span></div>
+      <div class="tag"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;color:var(--muted-2)"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 7v5l3 2"/></svg> container queries <span class="count">17</span></div>
+
+      <div class="sect">已保存搜索</div>
+      <div class="tag"><span class="dot" style="background: oklch(56% 0.15 150)"></span> 本周新增 + 未读 <span class="count">11</span></div>
+      <div class="tag"><span class="dot" style="background: oklch(55% 0.17 285)"></span> AI digest 引用过 <span class="count">68</span></div>
+
+      <div class="footer">
+        <div class="avatar"></div>
+        <div class="who">Raymond Yu<small>local · sync ok</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumbs"><b>atlas</b> <span class="sep">/</span> 搜索</div>
+        <button class="cmdk" type="button">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span class="label">询问 Atlas，或搜索 1,284 条笔记…</span>
+          <span class="kbd-set"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+        </button>
+        <button class="icon-btn" title="历史"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 7v5l3 2"/></svg></button>
+        <button class="icon-btn" title="保存搜索"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
+      </div>
+
+      <div class="content" style="max-width: 1320px;">
+        <!-- Search input -->
+        <section class="search-input-card">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input type="text" value="sparse autoencoders 在不同层级的可解释性区别" />
+          <div class="filters">
+            <span class="filter-chip">tag: llm-agents <span class="x">×</span></span>
+            <span class="filter-chip">最近 90 天 <span class="x">×</span></span>
+            <span class="filter-chip">+ 加筛选</span>
+          </div>
+        </section>
+
+        <!-- Tabs -->
+        <div class="result-tabs">
+          <div class="tab on">
+            <svg style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/><path d="M14 14a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/><path d="M11 8h11"/><path d="M2 18h10"/></svg>
+            混合 <span class="num">28</span>
+          </div>
+          <div class="tab">
+            <svg style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 9h16"/><path d="M9 4v16"/></svg>
+            笔记 <span class="num">19</span>
+          </div>
+          <div class="tab">
+            <svg style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M9 4h6v4H9z"/></svg>
+            网页/PDF <span class="num">7</span>
+          </div>
+          <div class="tab">
+            <svg style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+            过往对话 <span class="num">2</span>
+          </div>
+        </div>
+
+        <div class="search-shell">
+          <!-- Left: AI answer + result list -->
+          <div>
+            <!-- AI answer -->
+            <section class="ai-block ai-answer">
+              <div class="ai-label">
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--ai);"></span>
+                Atlas 答复 · 引用 6 条来源
+                <span class="muted-2 mono" style="margin-left:auto;font-size:10.5px;">3.8s · 2,810 tokens</span>
+              </div>
+              <h2>SAE 在不同层级展现了"原子—组合—回路"三档可解释性，而不是单一的"特征字典"。</h2>
+              <p>综合你 90 天内的 6 条笔记，趋势可以概括为：</p>
+              <ul>
+                <li><b>浅层 (layers 1-4)</b>：特征近乎单义，对应文本表层 token、词性、简单语义触发器<sup class="cite">1</sup>。</li>
+                <li><b>中层 (layers 5-16)</b>：开始出现组合性 — 同一特征会在多个语义场景共享，并表现为"概念向量"加法<sup class="cite">2</sup><sup class="cite">3</sup>。</li>
+                <li><b>深层 (layers 17+)</b>：进入"回路 (circuit)"语义，需要联合多个 SAE 节点才能稳定还原，单一特征的可解释度反而下降<sup class="cite">4</sup><sup class="cite">5</sup>。</li>
+              </ul>
+              <p>你 2026-04 的笔记《sparse-autoencoders.md》提到这与 Anthropic 的 monosemanticity 报告基本一致，但 Decode 那篇<sup class="cite">6</sup> 给出了更尖锐的反例：在 70B 规模上，"组合性"出现得比预测更早。</p>
+
+              <div class="sources-strip">
+                <div class="src-card">
+                  <div class="h"><span class="n">1</span><span class="typ">NOTE · 2026-04-12</span></div>
+                  <div class="t">sparse-autoencoders.md</div>
+                  <div class="d">94% 相关 · 引用 3 段</div>
+                </div>
+                <div class="src-card">
+                  <div class="h"><span class="n">2</span><span class="typ">PDF · ARXIV</span></div>
+                  <div class="t">Nanda et al. · Residual decomposition</div>
+                  <div class="d">88% · arxiv.org/abs/2402…</div>
+                </div>
+                <div class="src-card">
+                  <div class="h"><span class="n">3</span><span class="typ">WEB · TRANSFORMER-CIRCUITS</span></div>
+                  <div class="t">Toward Monosemanticity (update)</div>
+                  <div class="d">86% · transformer-circuits.pub</div>
+                </div>
+                <div class="src-card">
+                  <div class="h"><span class="n">4</span><span class="typ">NOTE · 2026-03-28</span></div>
+                  <div class="t">circuits-mid-late.md</div>
+                  <div class="d">82% 相关</div>
+                </div>
+              </div>
+
+              <div class="ai-foot">
+                <div class="meta">
+                  <span>来源 <b>6</b></span>
+                  <span>置信 <b>0.78</b></span>
+                  <span>模型 <b>claude-sonnet-4.6</b></span>
+                </div>
+                <button class="btn"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h11"/><path d="M9 6h11"/><path d="M9 18h11"/><circle cx="5" cy="6" r="1.2"/><circle cx="5" cy="12" r="1.2"/><circle cx="5" cy="18" r="1.2"/></svg> 改写为笔记</button>
+                <button class="btn"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5h11"/><path d="M8 12h11"/><path d="M8 19h11"/><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/></svg> 展开为大纲</button>
+                <button class="btn"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg> 继续追问</button>
+              </div>
+            </section>
+
+            <!-- Hit results -->
+            <div class="results">
+              <div class="muted mono" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px;">原始命中 · 按混合得分排序</div>
+
+              <div class="res">
+                <div class="h">
+                  <span class="title">sparse-autoencoders.md</span>
+                  <span class="pill ok"><span class="dot"></span> 已被引用</span>
+                  <span class="path">notes / ai / interpretability</span>
+                </div>
+                <p class="snippet">"…<mark>SAE 在不同层级</mark>所提取的特征数量并不线性增长——浅层 (1-4) 接近词典，中层 (5-16) 出现组合，深层之后<mark>可解释性</mark>反而下降，更像是一个回路问题而不是字典问题…"</p>
+                <div class="foot">
+                  <span class="score">混合 0.94</span>
+                  <span>BM25 0.71</span>
+                  <span>向量 0.88</span>
+                  <span class="tags"><span class="tag-chip" style="font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); padding: 1px 6px; border: 1px solid var(--border); border-radius: 3px;">llm-agents</span></span>
+                  <span style="margin-left: auto;">2026-04-12</span>
+                </div>
+              </div>
+
+              <div class="res">
+                <div class="h">
+                  <span class="title">Toward Monosemanticity — update note</span>
+                  <span class="pill ai"><span class="dot"></span> AI 摘要</span>
+                  <span class="path">web · transformer-circuits.pub</span>
+                </div>
+                <p class="snippet">"…dictionary learning recovers <mark>interpretable features</mark> at scale, but our preliminary work suggests that <mark>features at deeper layers</mark> may be more polysemantic, hinting at circuit-level structure that single features can't capture…"</p>
+                <div class="foot">
+                  <span class="score">混合 0.86</span>
+                  <span>BM25 0.59</span>
+                  <span>向量 0.91</span>
+                  <span style="margin-left: auto;">2026-05-09 剪藏</span>
+                </div>
+              </div>
+
+              <div class="res">
+                <div class="h">
+                  <span class="title">circuits-mid-late.md</span>
+                  <span class="path">notes / ai / interpretability</span>
+                </div>
+                <p class="snippet">"我自己的实验：把 <mark>SAE</mark> 装在 layer 22 时，单一 feature 的下游行为不稳定，但取 top-3 features 的线性组合能稳定预测——这正是<mark>电路 (circuit)</mark>的味道…"</p>
+                <div class="foot">
+                  <span class="score">混合 0.82</span>
+                  <span>BM25 0.43</span>
+                  <span>向量 0.95</span>
+                  <span style="margin-left: auto;">2026-03-28</span>
+                </div>
+              </div>
+
+              <div class="res">
+                <div class="h">
+                  <span class="title">Decode 论文 — Compositional features emerge earlier than expected</span>
+                  <span class="pill ai"><span class="dot"></span> 已 OCR</span>
+                  <span class="path">pdf · decode.ai</span>
+                </div>
+                <p class="snippet">"…in 70B-scale models we observe <mark>compositional</mark> behavior already at layer 6, contradicting the monosemanticity timeline reported in earlier work on smaller models…"</p>
+                <div class="foot">
+                  <span class="score">混合 0.79</span>
+                  <span>BM25 0.62</span>
+                  <span>向量 0.83</span>
+                  <span style="margin-left: auto;">2026-06-15 剪藏</span>
+                </div>
+              </div>
+
+              <div class="res">
+                <div class="h">
+                  <span class="title">与 Atlas 的对话 — "为什么 SAE 在 deep layers 失效"</span>
+                  <span class="pill"><span class="dot"></span> 对话 · 11 轮</span>
+                  <span class="path">conv · 2026-05-20</span>
+                </div>
+                <p class="snippet">"问：在 layer 28 之后 <mark>features</mark> 的 explained variance 急剧下降，是不是 SAE 容量不够？答：更可能是因为深层<mark>不是字典</mark>……"</p>
+                <div class="foot">
+                  <span class="score">混合 0.74</span>
+                  <span style="margin-left: auto;">2026-05-20</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: refine -->
+          <aside class="card refine">
+            <div class="head" style="border-bottom: 1px solid var(--border);">
+              <h3>筛选</h3>
+              <span class="sub">28 命中</span>
+            </div>
+            <div class="group">
+              <div class="glabel">时间分布</div>
+              <div class="histo" title="近 12 个月命中量">
+                <span style="height:14%"></span><span style="height:24%"></span><span style="height:18%"></span>
+                <span style="height:34%"></span><span style="height:42%"></span><span style="height:30%"></span>
+                <span style="height:48%"></span><span style="height:62%"></span><span style="height:74%"></span>
+                <span class="on" style="height:84%"></span><span class="on" style="height:92%"></span><span class="on" style="height:62%"></span>
+              </div>
+              <div class="histo-foot"><span>2025-07</span><span>2026-06</span></div>
+            </div>
+            <div class="group">
+              <div class="glabel">来源类型</div>
+              <label class="check"><input type="checkbox" checked> 笔记 <span class="ct">19</span></label>
+              <label class="check"><input type="checkbox" checked> 网页剪藏 <span class="ct">5</span></label>
+              <label class="check"><input type="checkbox" checked> PDF <span class="ct">2</span></label>
+              <label class="check"><input type="checkbox"> 对话 <span class="ct">2</span></label>
+              <label class="check"><input type="checkbox"> 转录稿 <span class="ct">0</span></label>
+            </div>
+            <div class="group">
+              <div class="glabel">标签</div>
+              <label class="check"><input type="checkbox" checked> llm-agents <span class="ct">22</span></label>
+              <label class="check"><input type="checkbox"> papers <span class="ct">11</span></label>
+              <label class="check"><input type="checkbox"> research <span class="ct">8</span></label>
+              <label class="check"><input type="checkbox"> circuits <span class="ct">6</span></label>
+            </div>
+            <div class="group">
+              <div class="glabel">检索方式</div>
+              <label class="check"><input type="radio" name="r" checked> 混合 (BM25 + 向量)</label>
+              <label class="check"><input type="radio" name="r"> 仅关键词</label>
+              <label class="check"><input type="radio" name="r"> 仅语义</label>
+            </div>
+            <div class="group">
+              <div class="glabel">高级</div>
+              <label class="check"><input type="checkbox"> 仅显示我自己写的</label>
+              <label class="check"><input type="checkbox"> 排除剪藏</label>
+              <label class="check"><input type="checkbox" checked> 在结果里高亮命中段</label>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

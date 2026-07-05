@@ -776,6 +776,10 @@ issue 类型为 `stale/duplicate/conflict/broken_link/missing_tags`，严重度�
 - `GET /api/notifications?unread_only=`：当前用户站内通知。
 - `POST /api/notifications/read`：`{ids?:[]}`；ids 缺省表示全部已读。
 
+通知在以下内容变更时产生（匹配已有订阅，历史变更不回补）：连接器同步新增/更新/失效/恢复、
+手动入库完成（`created`）、笔记编辑（`updated`，仅 title/content/tags 变化）、
+笔记恢复（`restored`）、治理提案执行（`updated`）。
+
 ### 问答反馈
 
 - `PUT /api/qa/history/{id}/feedback`：`{rating:"up|down",reason?}`。

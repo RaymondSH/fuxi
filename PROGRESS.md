@@ -22,7 +22,7 @@
 | M4 协作能力 | ✅ | 订阅、通知、问答反馈、审批式治理 Agent |
 | M4 企业连接器 | 🚧 | 四类连接器框架已部署；真实平台凭据和实连验收待外部条件 |
 | Web 前端 | 🚧 | 24 个路由已构建上线；空间登录同步、治理页空状态和侧栏分类折叠已完成，问答流显示问题待最终生产验收 |
-| 移动端 | 🚧 | 脚手架和鉴权完成，不属于当前 Web 交付范围 |
+| 移动端 | 🚧 | React Native (Expo) 工程已落地：5 屏（首页/AI 对话/笔记/图谱/设置）+ 底部 5-tab 导航，全部接入后端 API；TypeScript 检查通过，待真机运行验收 |
 | 生产部署 | ✅ | backend/frontend/worker、ES、备份与维护 timer 正常运行 |
 
 ## 已交付范围
@@ -52,6 +52,37 @@
 
 ## 更新记录
 
+- **2026-07-04** — 移动端从 Web Standalone SPA 升级为 React Native (Expo) 原生工程：
+  - **工程基础**：`mobile/` 目录，Expo ~52 + RN 0.76 + NativeWind v4 + expo-router + TypeScript；色板 token 与 Web 端 `frontend/` 对齐（terracotta 暖色，AGENTS.md §6 house style）
+  - **基础设施层**（`lib/`）：`api.ts`（双 token + SecureStore + 401 单飞刷新 + 429 配额）；`sse.ts`（react-native-sse 封装 `streamQa`，事件序 sources→token→done）；`forceLayout.ts`（力导向布局，移植自 Web 端）；`types.ts`（与 api-contract.md 对齐）
+  - **组件层**（`components/`）：`Icons.tsx`（react-native-svg 24×24 stroke 图标库 19 个）；`AppBar.tsx`（顶栏 title/subtitle/back/right）；`BottomNav.tsx`（5-tab 底部导航，active 态 brand-soft 高亮）；`Switch.tsx`（本地 toggle）
+  - **全局态**（`contexts/`）：`AuthProvider`（登录守卫 + 双 token）；`SnackProvider`（全局 snackbar，Animated 淡入淡出）
+  - **5 屏**（`app/`）：
+    - `index.tsx` 首页：按小时问候 + 搜索（focus 显历史、Enter 触检索、结果面板）+ 快速抓取（URL 校验→`POST /ingest/url`）+ 最近 5 条笔记（`GET /notes`）
+    - `chat.tsx` AI 对话：SSE 流式（sources→token→done）、用户/AI 气泡、思考中态、停止生成按钮（红色）、对话历史持久化 SecureStore
+    - `note.tsx` 笔记：`GET /notes/{id}` 详情、标题/正文编辑器、1.5s debounce 自动保存 + 手动保存按钮（`PATCH /notes/{id}`）、标签/实体 chip
+    - `graph.tsx` 知识图谱：`GET /graph` → `layoutGraph()` 力导向 → SVG 渲染节点（按 cat 着色、按 count 算半径）+ 边 + 底部 sheet
+    - `settings.tsx` 设置：`GET /system/status` 系统状态、账户信息、同步/AI 偏好 Switch、缓存大小、退出登录（danger 红）
+  - `_layout.tsx`：注册 5 个 Stack.Screen + SnackProvider 包裹 + 条件渲染 BottomNav（login 不显示）
+  - 验证：`npx tsc --noEmit` 通过，零错误；待真机 `expo start` 运行验收
+- **2026-07-05** — 移动端从设计原型升级为 Standalone SPA（`/m/mobile.html` 从后端直接挂载）：
+  - `mobile.html` 成为唯一入口，5 个 Android + 5 个 iOS HTML 文件改为重定向
+  - `mobile.js` 重写为 SPA 核心：hash 路由、API 客户端（含 token 自动刷新）、5 屏渲染器
+  - 实现功能：JWT 登录/自动登出、最近笔记列表（加载/空/错误态）、搜索面板（历史 + 实时搜索）、快速捕获链接、SSE 流式 AI 对话、笔记查看/自动保存、知识图谱（圆形布局/节点点击底部 sheet）、设置页（系统状态/退出）
+  - CSS 补充：登录表单、搜索面板、停止生成按钮等状态样式
+  - 新增 PWA manifest.json
+- **2026-07-04** — 第三轮模块达标核查与修复：
+  - **M4 分发通知覆盖面**：`emit_change` 原仅连接器路径触发，手动入库、笔记编辑、
+    软删恢复等内容变更无订阅通知。补三处触发点：`ingest_worker._process` 入库完成发
+    `created`、`notes.update_note` title/content/tags 变化发 `updated`、
+    `notes.restore_note` 恢复发 `restored`（无空间归属或无订阅者时静默跳过）。
+  - **M4 update_summary 死代码**：核查确认 `_proposal` 对 `stale`+manual 来源返回
+    `None`（跳过）是有意设计——重写摘要不解决内容过期，属「表面改写」，由测试
+    `test_stale_..._not_cosmetically_rewritten` 保护。execute 中的 `update_summary`
+    分支降级为防御性代码（处理 DB 历史/人工提案）并加注释；schema CHECK 仍允许五类。
+  - **M4 连接器定时调度**：核查确认 `scripts/fuxi.py maintenance` 已按 1 小时间隔入队
+    到期 `connector_sync` job（systemd `fuxi-maintenance.timer` 每小时触发），无需新增。
+  - 文档：api-contract.md 补通知触发场景说明。
 - **2026-07-04** — 修复二轮核查剩余问题：Wiki/MCP 空间 SQL 别名、锁号事务提交、
   SQL 34 初始化入口、标题 ES 同步、搜索 total 语义、治理 LLM 调用上限、SSE 最终
   脱敏展示、stale 治理动作、MCP 无来源生成与 token 前缀筛选、Agent 审批竞态、

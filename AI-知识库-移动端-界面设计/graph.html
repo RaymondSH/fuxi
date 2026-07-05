@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas — 知识图谱</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;450;510;550;590&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .graph-shell {
+      display: grid;
+      grid-template-columns: 220px 1fr 320px;
+      height: calc(100vh - 49px);
+      min-height: 600px;
+    }
+    @media (max-width: 1180px) { .graph-shell { grid-template-columns: 1fr; } .graph-shell .lp, .graph-shell .rp { display: none; } }
+
+    .lp, .rp {
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      overflow-y: auto;
+    }
+    .rp { border-right: 0; border-left: 1px solid var(--border); }
+    .lp .sec, .rp .sec {
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .lp .sec:last-child, .rp .sec:last-child { border-bottom: 0; }
+    .lp .lbl, .rp .lbl {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted-2);
+      margin-bottom: 10px;
+    }
+    .legend-row {
+      display: flex; align-items: center; gap: 9px;
+      padding: 5px 0;
+      font-size: 13px;
+      color: var(--fg-2);
+    }
+    .legend-row .dot {
+      width: 11px; height: 11px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-row .ct {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted-2);
+    }
+
+    .gp-canvas-wrap {
+      position: relative;
+      background:
+        radial-gradient(circle at 30% 30%, oklch(98% 0.01 250) 0%, oklch(96% 0.005 250) 60%, oklch(95% 0.005 250) 100%);
+      overflow: hidden;
+    }
+    .gp-canvas { width: 100%; height: 100%; display: block; }
+    .gp-canvas { background-image: linear-gradient(oklch(91% 0.005 250) 1px, transparent 1px), linear-gradient(90deg, oklch(91% 0.005 250) 1px, transparent 1px); background-size: 32px 32px; background-position: -1px -1px; }
+
+    .gp-toolbar {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      z-index: 5;
+    }
+    .gp-toolbar .group {
+      display: flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      box-shadow: var(--shadow-pop);
+      overflow: hidden;
+    }
+    .gp-toolbar .group button {
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      border-right: 1px solid var(--border);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .gp-toolbar .group button:last-child { border-right: 0; }
+    .gp-toolbar .group button:hover { background: var(--surface-2); color: var(--fg); }
+    .gp-toolbar .group button.on { color: var(--fg); background: var(--surface-2); font-weight: 510; }
+    .gp-toolbar .group .ico { width: 13px; height: 13px; }
+
+    .gp-zoom {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      overflow: hidden;
+      box-shadow: var(--shadow-pop);
+    }
+    .gp-zoom button {
+      width: 28px; height: 28px;
+      display: grid; place-items: center;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .gp-zoom button:hover { color: var(--fg); background: var(--surface-2); }
+    .gp-zoom button:last-child { border-bottom: 0; }
+    .gp-zoom .lvl {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+      text-align: center;
+      padding: 2px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .gp-hint {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      display: flex;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 5px 10px;
+      box-shadow: var(--shadow-pop);
+    }
+    .gp-hint span { display: inline-flex; align-items: center; gap: 5px; }
+
+    /* Right inspector */
+    .rp .inspect-head {
+      padding: 14px 14px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .rp .inspect-head h2 {
+      font-size: 16px;
+      letter-spacing: -0.01em;
+      margin: 6px 0;
+      font-weight: 590;
+    }
+    .rp .inspect-head .meta {
+      display: flex; gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .rp .summary {
+      font-size: 13px;
+      color: var(--fg-2);
+      line-height: 1.6;
+    }
+    .neigh-list { list-style: none; padding: 0; margin: 0; }
+    .neigh-list li {
+      padding: 8px 0;
+      border-bottom: 1px dashed var(--border);
+      display: grid;
+      grid-template-columns: 14px 1fr auto;
+      gap: 9px;
+      align-items: center;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .neigh-list li:last-child { border-bottom: 0; }
+    .neigh-list li:hover { background: var(--surface-2); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: var(--r-sm); }
+    .neigh-list .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .neigh-list .ttl { color: var(--fg); font-weight: 500; }
+    .neigh-list .ttl small { display: block; color: var(--muted); font-weight: 400; font-size: 11.5px; }
+    .neigh-list .w {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .clust-card {
+      display: flex; gap: 9px; align-items: center;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      margin-bottom: 6px;
+      cursor: pointer;
+    }
+    .clust-card:hover { border-color: var(--border-strong); }
+    .clust-card.on { background: var(--surface-2); border-color: var(--border-strong); }
+    .clust-card .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+    .clust-card .name { font-size: 13px; font-weight: 510; color: var(--fg); }
+    .clust-card .cnt { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4 L26 10 V22 L16 28 L6 22 V10 Z"/><path d="M16 4 V16" /><path d="M16 16 L26 10" /><path d="M16 16 L6 10" /><path d="M16 16 V28" /></svg>
+        <b>Atlas</b><span class="ver">0.4.2</span>
+      </div>
+      <a class="nav" href="home.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M5 10v10h14V10"/></svg> 主界面</a>
+      <a class="nav" href="search.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg> 搜索<span class="count">⌘K</span></a>
+      <a class="nav active" href="graph.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="18" r="2.2"/><circle cx="18" cy="14" r="1.6"/><path d="M7.6 7.5 L11 16.4"/><path d="M16.6 7.7 L12.8 16.5"/><path d="M16.7 13 L13.5 17"/></svg> 知识图谱</a>
+      <a class="nav" href="note.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7"/><path d="M9 16h7"/><path d="M9 8h4"/></svg> 所有笔记<span class="count">1,284</span></a>
+
+      <div class="sect">视图</div>
+      <div class="tag"><span class="dot" style="background: oklch(56% 0.15 150)"></span> 全局视图 <span class="count">1,284</span></div>
+      <div class="tag"><span class="dot" style="background: oklch(55% 0.17 285)"></span> 当前焦点子图 <span class="count">42</span></div>
+      <div class="tag"><span class="dot" style="background: oklch(64% 0.16 75)"></span> 仅显示活跃研究 <span class="count">214</span></div>
+      <div class="tag"><span class="dot" style="background: oklch(48% 0.04 250)"></span> 孤立节点 <span class="count">36</span></div>
+
+      <div class="sect">布局</div>
+      <div class="tag">力导向 <span class="count">默认</span></div>
+      <div class="tag">按时间</div>
+      <div class="tag">按标签分组</div>
+
+      <div class="footer">
+        <div class="avatar"></div>
+        <div class="who">Raymond Yu<small>local · sync ok</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumbs"><b>atlas</b> <span class="sep">/</span> 知识图谱 <span class="sep">/</span> sparse autoencoders 子图</div>
+        <button class="cmdk" type="button">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span class="label">在图谱中跳转或筛选…</span>
+          <span class="kbd-set"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+        </button>
+        <button class="icon-btn" title="导出"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+      </div>
+
+      <div class="graph-shell">
+        <!-- Left panel: clusters / filters -->
+        <aside class="lp">
+          <div class="sec">
+            <div class="lbl">聚类 · 8</div>
+            <div class="clust-card on"><span class="swatch" style="background: var(--ai)"></span><span class="name">可解释性 / SAE</span><span class="cnt">42</span></div>
+            <div class="clust-card"><span class="swatch" style="background: oklch(56% 0.15 150)"></span><span class="name">Agent 记忆</span><span class="cnt">31</span></div>
+            <div class="clust-card"><span class="swatch" style="background: oklch(64% 0.16 75)"></span><span class="name">设计系统</span><span class="cnt">94</span></div>
+            <div class="clust-card"><span class="swatch" style="background: oklch(58% 0.18 28)"></span><span class="name">Rust async</span><span class="cnt">48</span></div>
+            <div class="clust-card"><span class="swatch" style="background: oklch(48% 0.10 220)"></span><span class="name">城市经济学</span><span class="cnt">54</span></div>
+            <div class="clust-card"><span class="swatch" style="background: oklch(56% 0.04 250)"></span><span class="name">写作 / 散文</span><span class="cnt">28</span></div>
+          </div>
+          <div class="sec">
+            <div class="lbl">连边类型</div>
+            <div class="legend-row"><span class="dot" style="background: var(--fg)"></span> 反向链接 <span class="ct">312</span></div>
+            <div class="legend-row"><span class="dot" style="background: var(--ai); opacity: .7"></span> 语义相似 <span class="ct">1,108</span></div>
+            <div class="legend-row"><span class="dot" style="background: oklch(64% 0.16 75); opacity: .7"></span> 共同标签 <span class="ct">624</span></div>
+            <div class="legend-row"><span class="dot" style="background: oklch(56% 0.15 150)"></span> AI 推断关系 <span class="ct">87</span></div>
+          </div>
+          <div class="sec">
+            <div class="lbl">阈值</div>
+            <label class="check" style="padding:5px 0"><span style="width:120px; color:var(--muted)">相似度 ≥ <b class="mono" style="color:var(--fg-2)">0.72</b></span><input type="range" value="72" min="0" max="100" style="flex:1; accent-color: var(--accent);"></label>
+            <label class="check" style="padding:5px 0"><span style="width:120px; color:var(--muted)">最小连边数</span><span class="mono" style="color:var(--fg-2)">2</span></label>
+          </div>
+        </aside>
+
+        <!-- Center: graph canvas -->
+        <div class="gp-canvas-wrap">
+          <div class="gp-toolbar">
+            <div class="group">
+              <button class="on">力导向</button>
+              <button>时序</button>
+              <button>聚类</button>
+            </div>
+            <div class="group">
+              <button><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16"/><path d="M4 12h16"/></svg> 展开</button>
+              <button><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16"/></svg> 折叠</button>
+              <button>邻接 2 度</button>
+            </div>
+          </div>
+
+          <svg class="gp-canvas" viewBox="0 0 1200 760" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="oklch(70% 0.012 250)" />
+              </marker>
+              <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="oklch(55% 0.17 285)" stop-opacity="0.25"/>
+                <stop offset="100%" stop-color="oklch(55% 0.17 285)" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+
+            <!-- Focused cluster halo -->
+            <circle cx="640" cy="380" r="260" fill="url(#halo)" />
+
+            <!-- Edges (drawn first so nodes sit above) -->
+            <g stroke-linecap="round" fill="none">
+              <!-- strong backlink edges -->
+              <g stroke="oklch(58% 0.012 250)" stroke-width="1.3">
+                <path d="M 640 380 C 540 290, 460 270, 380 240" />
+                <path d="M 640 380 C 730 300, 820 290, 880 260" />
+                <path d="M 640 380 C 720 470, 820 510, 900 540" />
+                <path d="M 640 380 C 540 470, 460 530, 380 560" />
+                <path d="M 640 380 C 620 280, 600 200, 580 140" />
+                <path d="M 380 240 L 260 200" />
+                <path d="M 880 260 L 1000 230" />
+                <path d="M 900 540 L 1010 580" />
+                <path d="M 380 560 L 260 600" />
+              </g>
+              <!-- weak semantic similarity (dashed) -->
+              <g stroke="oklch(55% 0.17 285)" stroke-width="1" stroke-dasharray="3 4" opacity="0.55">
+                <path d="M 380 240 C 480 360, 540 400, 380 560" />
+                <path d="M 880 260 C 780 360, 740 410, 900 540" />
+                <path d="M 580 140 C 700 220, 800 220, 880 260" />
+                <path d="M 260 200 C 200 380, 220 500, 260 600" />
+                <path d="M 1000 230 C 1080 380, 1080 500, 1010 580" />
+                <path d="M 260 200 L 580 140" />
+                <path d="M 580 140 L 1000 230" />
+                <path d="M 260 600 L 1010 580" />
+              </g>
+              <!-- AI-inferred (solid green) -->
+              <g stroke="oklch(56% 0.15 150)" stroke-width="1.4">
+                <path d="M 640 380 L 460 130" />
+                <path d="M 640 380 L 1050 410" />
+                <path d="M 640 380 L 220 410" />
+              </g>
+            </g>
+
+            <!-- Far-out neighbor nodes (small, clipped sample of full graph beyond visible cluster) -->
+            <g>
+              <g transform="translate(80,120)">
+                <circle r="6" fill="oklch(78% 0.06 250)" />
+              </g>
+              <g transform="translate(140,720)">
+                <circle r="5" fill="oklch(78% 0.06 250)" />
+              </g>
+              <g transform="translate(1100,120)">
+                <circle r="5" fill="oklch(78% 0.06 250)" />
+              </g>
+              <g transform="translate(1130,700)">
+                <circle r="6" fill="oklch(78% 0.06 250)" />
+              </g>
+              <g transform="translate(60,420)">
+                <circle r="4" fill="oklch(78% 0.06 250)" />
+              </g>
+              <g transform="translate(1150,440)">
+                <circle r="4" fill="oklch(78% 0.06 250)" />
+              </g>
+            </g>
+
+            <!-- Outer-ring nodes with labels (secondary cluster members) -->
+            <g font-family="Inter, system-ui, sans-serif" font-size="11">
+              <g transform="translate(260,200)">
+                <circle r="9" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)" stroke-width="1"/>
+                <text x="14" y="4" fill="oklch(40% 0.02 250)">circuits-mid-late.md</text>
+              </g>
+              <g transform="translate(460,130)">
+                <circle r="8" fill="oklch(86% 0.08 150)" stroke="oklch(56% 0.15 150)" stroke-width="1"/>
+                <text x="13" y="4" fill="oklch(40% 0.02 250)">Decode · early compositionality</text>
+              </g>
+              <g transform="translate(580,140)">
+                <circle r="11" fill="oklch(72% 0.10 285)" stroke="oklch(45% 0.17 285)" stroke-width="1.2"/>
+                <text x="15" y="4" fill="oklch(28% 0.02 250)" font-weight="510">Toward Monosemanticity</text>
+              </g>
+              <g transform="translate(1000,230)">
+                <circle r="9" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)" stroke-width="1"/>
+                <text x="14" y="4" fill="oklch(40% 0.02 250)">Nanda residual decomposition</text>
+              </g>
+              <g transform="translate(1050,410)">
+                <circle r="8" fill="oklch(86% 0.08 150)" stroke="oklch(56% 0.15 150)" stroke-width="1"/>
+                <text x="13" y="4" fill="oklch(40% 0.02 250)">AI 推断 → 与 evals 的关联</text>
+              </g>
+              <g transform="translate(880,260)">
+                <circle r="13" fill="oklch(72% 0.10 285)" stroke="oklch(45% 0.17 285)" stroke-width="1.2"/>
+                <text x="17" y="4" fill="oklch(28% 0.02 250)" font-weight="510">monosemanticity-update.md</text>
+              </g>
+              <g transform="translate(900,540)">
+                <circle r="10" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)" stroke-width="1"/>
+                <text x="14" y="4" fill="oklch(40% 0.02 250)">agentic-memory 笔记</text>
+              </g>
+              <g transform="translate(1010,580)">
+                <circle r="7" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)" stroke-width="1"/>
+                <text x="12" y="4" fill="oklch(40% 0.02 250)">letta 比较</text>
+              </g>
+              <g transform="translate(380,560)">
+                <circle r="9" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)" stroke-width="1"/>
+                <text x="-118" y="4" fill="oklch(40% 0.02 250)" text-anchor="start">evals 的真实价值</text>
+              </g>
+              <g transform="translate(260,600)">
+                <circle r="7" fill="oklch(82% 0.07 285)" stroke="oklch(55% 0.17 285)" stroke-width="1"/>
+                <text x="-118" y="4" fill="oklch(40% 0.02 250)" text-anchor="start">cursor evals workflow</text>
+              </g>
+              <g transform="translate(220,410)">
+                <circle r="8" fill="oklch(86% 0.08 150)" stroke="oklch(56% 0.15 150)" stroke-width="1"/>
+                <text x="-130" y="4" fill="oklch(40% 0.02 250)" text-anchor="start">AI 推断 → 写作记忆</text>
+              </g>
+              <g transform="translate(380,240)">
+                <circle r="12" fill="oklch(72% 0.10 285)" stroke="oklch(45% 0.17 285)" stroke-width="1.2"/>
+                <text x="-145" y="4" fill="oklch(28% 0.02 250)" text-anchor="start" font-weight="510">circuits-mid-late.md</text>
+              </g>
+            </g>
+
+            <!-- Focused / active node (center) -->
+            <g transform="translate(640,380)">
+              <circle r="32" fill="none" stroke="oklch(55% 0.17 285)" stroke-width="1.4" stroke-dasharray="2 3"/>
+              <circle r="20" fill="oklch(55% 0.17 285)" />
+              <circle r="20" fill="oklch(45% 0.18 285)" opacity="0.3"/>
+              <text x="0" y="5" text-anchor="middle" fill="white" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600">SAE</text>
+              <text x="0" y="56" text-anchor="middle" fill="oklch(28% 0.02 250)" font-family="Inter, system-ui, sans-serif" font-size="12.5" font-weight="550">sparse-autoencoders.md</text>
+              <text x="0" y="72" text-anchor="middle" fill="oklch(52% 0.015 250)" font-family="JetBrains Mono, monospace" font-size="10.5" letter-spacing="0.05em">14 links · cluster: 可解释性</text>
+            </g>
+          </svg>
+
+          <div class="gp-zoom">
+            <button title="放大">+</button>
+            <div class="lvl">128%</div>
+            <button title="缩小">−</button>
+            <button title="重置"><svg style="width:13px;height:13px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 5v6h6"/></svg></button>
+          </div>
+
+          <div class="gp-hint">
+            <span><span class="kbd">⌥</span> 拖动平移</span>
+            <span><span class="kbd">⇧</span> 多选</span>
+            <span><span class="kbd">Space</span> 居中</span>
+          </div>
+        </div>
+
+        <!-- Right: node inspector -->
+        <aside class="rp">
+          <div class="inspect-head">
+            <span class="pill ai"><span class="dot"></span> 焦点节点</span>
+            <h2>sparse-autoencoders.md</h2>
+            <div class="meta">
+              <span>14 连边</span>
+              <span>·</span>
+              <span>cluster · 可解释性</span>
+              <span>·</span>
+              <span>2026-04-12</span>
+            </div>
+          </div>
+          <div class="sec">
+            <div class="lbl">AI 摘要</div>
+            <p class="summary">SAE 在不同层级展现"原子—组合—回路"三档可解释性。浅层近乎单义，中层出现组合性，深层进入回路语义，单一特征解释度反而下降。</p>
+          </div>
+          <div class="sec">
+            <div class="lbl">直接邻居 · 6</div>
+            <ul class="neigh-list">
+              <li>
+                <span class="dot" style="background: var(--fg)"></span>
+                <span class="ttl">monosemanticity-update.md <small>反向链接 · 3 处提及</small></span>
+                <span class="w">0.91</span>
+              </li>
+              <li>
+                <span class="dot" style="background: var(--fg)"></span>
+                <span class="ttl">circuits-mid-late.md <small>反向链接 · 2 处提及</small></span>
+                <span class="w">0.84</span>
+              </li>
+              <li>
+                <span class="dot" style="background: var(--ai); opacity: .7"></span>
+                <span class="ttl">Toward Monosemanticity <small>语义相似 · 段落级</small></span>
+                <span class="w">0.79</span>
+              </li>
+              <li>
+                <span class="dot" style="background: var(--accent)"></span>
+                <span class="ttl">Decode · early compositionality <small>AI 推断关系</small></span>
+                <span class="w">0.74</span>
+              </li>
+              <li>
+                <span class="dot" style="background: var(--ai); opacity: .7"></span>
+                <span class="ttl">Nanda residual decomposition <small>语义相似</small></span>
+                <span class="w">0.72</span>
+              </li>
+              <li>
+                <span class="dot" style="background: oklch(64% 0.16 75)"></span>
+                <span class="ttl">evals 的真实价值 <small>共同标签 · llm-agents</small></span>
+                <span class="w">0.61</span>
+              </li>
+            </ul>
+          </div>
+          <div class="sec">
+            <div class="lbl">建议的下一跳</div>
+            <ul class="neigh-list">
+              <li>
+                <span class="dot" style="background: var(--accent)"></span>
+                <span class="ttl">AI 建议：与 "agentic memory" 集群桥接 <small>3 个潜在连边</small></span>
+                <span class="w mono" style="color: var(--accent)">+3</span>
+              </li>
+              <li>
+                <span class="dot" style="background: var(--accent)"></span>
+                <span class="ttl">合并候选：2 个标题近义的草稿 <small>circuits-late.md · sae-deep.md</small></span>
+                <span class="w mono" style="color: var(--accent)">合并</span>
+              </li>
+            </ul>
+          </div>
+          <div class="sec">
+            <button class="btn primary" style="width: 100%; justify-content: center;">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+              打开笔记
+            </button>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

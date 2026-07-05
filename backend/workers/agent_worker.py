@@ -72,14 +72,15 @@ def _proposal(kind, title, content, tags, evidence, source_type="url"):
     """根据治理 issue 类型生成白名单提案。
 
     source_type 区分来源：'url' 可重新抓取（refresh_source）；'manual' 多为连接器导入，
-    没有 URL 可刷新，stale 走 update_summary（轻量重写摘要），broken_link 直接跳过
-    （连接器增量同步是另一条路径，不由治理 Agent 触发）。
+    没有 URL 可刷新，stale 直接跳过（重写摘要不解决内容过期，属治标不治本的「表面改写」，
+    见 test_stale_url_refreshes_source_but_manual_source_is_not_cosmetically_rewritten），
+    broken_link 同理跳过（连接器增量同步是另一条路径，不由治理 Agent 触发）。
     """
     if kind == "missing_tags":
         analysis = llm.analyze(content, title_hint=title)
         return "add_tags", {"tags": analysis.tags[:5]}, "根据正文补充缺失标签"
     if kind == "stale":
-        # 重写旧摘要不能解决内容过期；只有可重新抓取的 URL 来源才能自动闭环。
+        # 只有可重新抓取的 URL 来源才能自动闭环过期内容；manual 来源跳过。
         if source_type == "url":
             return "refresh_source", {}, "重新抓取并更新过期内容"
         return None, {}, ""
@@ -120,6 +121,9 @@ def execute(proposal_id: uuid.UUID) -> None:
                 )
             lifecycle.reindex(note_id)
         elif action == "update_summary":
+            # 防御性分支：当前 _proposal 不生成 update_summary（stale+manual 跳过，
+            # 因重写摘要不解决内容过期；见 test_stale_..._not_cosmetically_rewritten）。
+            # 保留此分支以处理 DB 中可能的历史/人工提案，schema CHECK 仍允许该动作。
             with pool.connection() as conn:
                 lifecycle.save_version(conn, note_id, "edit")
                 conn.execute("UPDATE notes SET summary=%s WHERE id=%s AND space_id=%s",

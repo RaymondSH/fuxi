@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas — 设置</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;450;510;550;590&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .set-shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: calc(100vh - 49px);
+    }
+    @media (max-width: 900px) { .set-shell { grid-template-columns: 1fr; } .set-shell .secondary { display: none; } }
+
+    .secondary {
+      border-right: 1px solid var(--border);
+      padding: 20px 14px;
+      background: var(--surface);
+    }
+    .secondary .lbl {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted-2);
+      margin: 14px 6px 6px;
+    }
+    .secondary .lbl:first-child { margin-top: 0; }
+    .sec-nav {
+      display: flex; align-items: center; gap: 9px;
+      padding: 6px 8px;
+      color: var(--fg-2);
+      font-size: 13px;
+      border-radius: var(--r-sm);
+      cursor: pointer;
+    }
+    .sec-nav:hover { background: var(--surface-2); color: var(--fg); }
+    .sec-nav.on { background: var(--surface-2); color: var(--fg); font-weight: 510; }
+    .sec-nav .ico { width: 14px; height: 14px; color: var(--muted); flex-shrink: 0; }
+    .sec-nav.on .ico { color: var(--fg); }
+
+    .set-content { padding: 28px 36px 80px; max-width: 920px; width: 100%; }
+    .set-content > section { margin-bottom: 36px; }
+    .set-content h2 {
+      font-size: 16px;
+      font-weight: 590;
+      letter-spacing: -0.012em;
+      margin: 0 0 4px;
+    }
+    .set-content .desc {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 16px;
+      max-width: 60ch;
+    }
+
+    .row-set {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      padding: 14px 0;
+      border-top: 1px solid var(--border);
+      gap: 24px;
+      align-items: start;
+    }
+    .row-set:last-child { border-bottom: 1px solid var(--border); }
+    .row-set .lbl {
+      font-size: 13.5px;
+      font-weight: 510;
+      color: var(--fg);
+      padding-top: 4px;
+    }
+    .row-set .lbl small {
+      display: block;
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 12px;
+      margin-top: 2px;
+      line-height: 1.5;
+    }
+    .row-set .ctrl {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .toggle {
+      width: 30px; height: 18px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      position: relative;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+      flex-shrink: 0;
+    }
+    .toggle::after {
+      content: "";
+      position: absolute;
+      top: 1px; left: 1px;
+      width: 14px; height: 14px;
+      background: white;
+      border-radius: 50%;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      transition: left .15s;
+    }
+    .toggle.on { background: var(--accent); border-color: var(--accent); }
+    .toggle.on::after { left: 13px; }
+
+    .seg {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .seg button {
+      padding: 5px 11px;
+      font-size: 12.5px;
+      color: var(--muted);
+      border-right: 1px solid var(--border);
+    }
+    .seg button:last-child { border-right: 0; }
+    .seg button.on { background: var(--fg); color: var(--surface); }
+
+    .text-in {
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      background: var(--surface);
+      font-size: 13px;
+      min-width: 220px;
+      color: var(--fg);
+    }
+    .text-in:focus { outline: 0; border-color: var(--fg-2); }
+    .text-in.mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; }
+
+    .sel {
+      height: 28px;
+      padding: 0 22px 0 9px;
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      background: var(--surface);
+      font-size: 13px;
+      color: var(--fg);
+      appearance: none;
+      background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: calc(100% - 12px) 12px, calc(100% - 8px) 12px;
+      background-size: 4px 4px;
+      background-repeat: no-repeat;
+    }
+
+    /* connectors table */
+    .conn-tbl .conn-row {
+      display: grid;
+      grid-template-columns: 32px 1fr auto auto auto;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .conn-tbl .conn-row:last-child { border-bottom: 0; }
+    .conn-tbl .logo {
+      width: 32px; height: 32px;
+      border-radius: var(--r-sm);
+      display: grid;
+      place-items: center;
+      color: white;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .conn-tbl .name { font-weight: 510; color: var(--fg); font-size: 14px; }
+    .conn-tbl .name small { display:block; color: var(--muted); font-weight: 400; font-size: 12px; }
+    .conn-tbl .stat {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* index status */
+    .index-card {
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      background: var(--surface);
+      padding: 16px 18px;
+    }
+    .index-card .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .index-card .grid .it {
+      padding: 12px;
+      background: var(--surface-2);
+      border-radius: var(--r);
+    }
+    .index-card .grid .lbl {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted-2);
+      margin-bottom: 6px;
+    }
+    .index-card .grid .val {
+      font-family: var(--font-mono);
+      font-size: 19px;
+      color: var(--fg);
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+    .progress {
+      height: 6px;
+      background: var(--surface-2);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    .progress span {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+      border-radius: 999px;
+      width: 84%;
+    }
+    @media (max-width: 720px) { .index-card .grid { grid-template-columns: repeat(2, 1fr); } }
+
+    /* shortcuts */
+    .sc-tbl {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .sc-tbl td {
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .sc-tbl td:first-child { color: var(--fg-2); }
+    .sc-tbl td:last-child { text-align: right; }
+    .sc-tbl tr:last-child td { border-bottom: 0; }
+
+    /* model card */
+    .model-card {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .model-card .m {
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 12px 14px;
+      cursor: pointer;
+    }
+    .model-card .m.on { border-color: var(--fg); }
+    .model-card .m .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .model-card .m .nm { font-weight: 550; color: var(--fg); font-size: 13.5px; }
+    .model-card .m .sub { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+    .model-card .m .row-foot { display: flex; gap: 10px; margin-top: 8px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+    @media (max-width: 720px) { .model-card { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4 L26 10 V22 L16 28 L6 22 V10 Z"/><path d="M16 4 V16" /><path d="M16 16 L26 10" /><path d="M16 16 L6 10" /><path d="M16 16 V28" /></svg>
+        <b>Atlas</b><span class="ver">0.4.2</span>
+      </div>
+      <a class="nav" href="home.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M5 10v10h14V10"/></svg> 主界面</a>
+      <a class="nav" href="search.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg> 搜索<span class="count">⌘K</span></a>
+      <a class="nav" href="graph.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="18" r="2.2"/><circle cx="18" cy="14" r="1.6"/><path d="M7.6 7.5 L11 16.4"/><path d="M16.6 7.7 L12.8 16.5"/><path d="M16.7 13 L13.5 17"/></svg> 知识图谱</a>
+      <a class="nav" href="note.html"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7"/><path d="M9 16h7"/><path d="M9 8h4"/></svg> 所有笔记<span class="count">1,284</span></a>
+
+      <div class="sect">空间</div>
+      <div class="tag"><span class="dot" style="background: oklch(56% 0.15 150)"></span> Personal <span class="count">主</span></div>
+      <div class="tag"><span class="dot" style="background: oklch(55% 0.17 285)"></span> Research scratch</div>
+      <div class="tag"><span class="dot" style="background: oklch(48% 0.04 250)"></span> + 新建</div>
+
+      <a class="nav active" href="settings.html" style="margin-top: 14px;"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.08a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.08a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 3.08V3a2 2 0 1 1 4 0v.08a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.08a1.7 1.7 0 0 0-1.56 1z"/></svg> 设置</a>
+
+      <div class="footer">
+        <div class="avatar"></div>
+        <div class="who">Raymond Yu<small>local · sync ok</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumbs"><b>atlas</b> <span class="sep">/</span> 设置 <span class="sep">/</span> AI 与索引</div>
+        <button class="cmdk" type="button">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span class="label">在设置中跳转…</span>
+          <span class="kbd-set"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+        </button>
+      </div>
+
+      <div class="set-shell">
+        <!-- Secondary nav -->
+        <aside class="secondary">
+          <div class="lbl">账户</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>账号</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M9 4v16"/></svg>空间</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/></svg>计费</div>
+
+          <div class="lbl">知识库</div>
+          <div class="sec-nav on"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 3v6h6"/></svg>AI 与索引</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h7"/></svg>笔记格式</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4a7 7 0 1 0 7 7"/><path d="M16 4l4 4"/><path d="M16 8h4"/></svg>连接器</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></svg>同步</div>
+
+          <div class="lbl">应用</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>外观</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18"/><path d="M3 12h18"/><path d="M3 17h18"/></svg>键盘快捷键</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L21 8 V16 L12 21 L3 16 V8 Z"/></svg>隐私</div>
+          <div class="sec-nav"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 9h.01"/><path d="M15 9h.01"/><path d="M9 14c1 1.5 5 1.5 6 0"/></svg>关于</div>
+        </aside>
+
+        <!-- Settings content -->
+        <div class="set-content">
+          <!-- Index status -->
+          <section>
+            <h2>索引状态</h2>
+            <p class="desc">向量索引和反向索引由本地的 vespa-lite 工作者维护。完整重建大约需要 4 分钟。</p>
+
+            <div class="index-card">
+              <div class="grid">
+                <div class="it">
+                  <div class="lbl">总文档</div>
+                  <div class="val">1,284</div>
+                </div>
+                <div class="it">
+                  <div class="lbl">已嵌入</div>
+                  <div class="val">1,272 <span class="muted-2 mono" style="font-size:11px;">/ 1,284</span></div>
+                </div>
+                <div class="it">
+                  <div class="lbl">待索引</div>
+                  <div class="val">12</div>
+                </div>
+                <div class="it">
+                  <div class="lbl">磁盘占用</div>
+                  <div class="val">214 <span class="muted-2 mono" style="font-size:11px;">MB</span></div>
+                </div>
+              </div>
+              <div class="row-between">
+                <div class="muted mono" style="font-size: 11px;">嵌入模型：bge-m3 · 维度 1024 · 上次重建 2026-06-19 03:14</div>
+                <div class="row">
+                  <button class="btn"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 5v6h6"/></svg> 重建索引</button>
+                  <button class="btn primary">索引 12 条新文档</button>
+                </div>
+              </div>
+              <div class="progress" title="84% — 12 docs pending"><span></span></div>
+            </div>
+          </section>
+
+          <!-- AI models -->
+          <section>
+            <h2>AI 模型</h2>
+            <p class="desc">默认对话模型用于 Ask Atlas、笔记内追问、Today Digest。嵌入模型只在重建索引时使用。</p>
+
+            <div class="row-set">
+              <div class="lbl">默认对话模型<small>影响主界面 ⌘K 询问、笔记内追问</small></div>
+              <div class="ctrl">
+                <div class="model-card" style="flex: 1; min-width: 100%;">
+                  <div class="m on">
+                    <div class="hd"><span class="pill ok"><span class="dot"></span> 已选</span><span class="nm">claude-sonnet-4.6</span></div>
+                    <div class="sub">综合最稳，长上下文 200k，引用准确。</div>
+                    <div class="row-foot"><span>3.2¢ / 1k in</span><span>·</span><span>1.6¢ / 1k out</span></div>
+                  </div>
+                  <div class="m">
+                    <div class="hd"><span class="pill"><span class="dot"></span> 备选</span><span class="nm">claude-haiku-4.5</span></div>
+                    <div class="sub">更快更便宜，适合短答和"找文件"类问题。</div>
+                    <div class="row-foot"><span>0.7¢ / 1k in</span><span>·</span><span>0.4¢ / 1k out</span></div>
+                  </div>
+                  <div class="m">
+                    <div class="hd"><span class="pill"><span class="dot"></span> 本地</span><span class="nm">qwen3-30b-a3b · MLX</span></div>
+                    <div class="sub">本地推理，速度依赖你的硬件。在离线时自动接管。</div>
+                    <div class="row-foot"><span>本地</span><span>·</span><span>16 GB 占用</span></div>
+                  </div>
+                  <div class="m">
+                    <div class="hd"><span class="pill"><span class="dot"></span> 备选</span><span class="nm">gpt-5-thinking</span></div>
+                    <div class="sub">复杂推理任务,深 reasoning,但更慢更贵。</div>
+                    <div class="row-foot"><span>4.4¢ / 1k in</span><span>·</span><span>2.0¢ / 1k out</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row-set">
+              <div class="lbl">嵌入模型<small>更换后会触发整库重建</small></div>
+              <div class="ctrl">
+                <select class="sel">
+                  <option>bge-m3 · 1024 dim · multilingual</option>
+                  <option>text-embedding-3-large · 3072 dim</option>
+                  <option>cohere-embed-v4 · 1536 dim</option>
+                  <option>本地 · nomic-embed-text-v2</option>
+                </select>
+                <span class="pill"><span class="dot"></span> 当前</span>
+              </div>
+            </div>
+
+            <div class="row-set">
+              <div class="lbl">每次提问最大引用条数</div>
+              <div class="ctrl">
+                <input type="range" min="2" max="12" value="6" style="width: 200px; accent-color: var(--accent);">
+                <span class="mono" style="color: var(--fg-2);">6</span>
+                <span class="muted mono" style="font-size: 11px;">建议 4–8 · 多于 8 可能引起幻觉重组</span>
+              </div>
+            </div>
+
+            <div class="row-set">
+              <div class="lbl">允许 AI 跨空间检索<small>关闭后 AI 只看到当前空间</small></div>
+              <div class="ctrl">
+                <span class="toggle on" role="switch"></span>
+                <span class="muted" style="font-size: 12.5px;">当前：开 · Personal + Research scratch</span>
+              </div>
+            </div>
+
+            <div class="row-set">
+              <div class="lbl">幻觉守门<small>当置信 &lt; 0.5 时附带"低置信"提醒</small></div>
+              <div class="ctrl">
+                <span class="toggle on" role="switch"></span>
+                <select class="sel" style="margin-left: 8px;">
+                  <option>严格 (拒答 &lt; 0.4)</option>
+                  <option selected>平衡 (提醒 &lt; 0.5)</option>
+                  <option>宽松</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <!-- Connectors -->
+          <section>
+            <h2>连接器</h2>
+            <p class="desc">从外部来源拉取内容到 Atlas 进行索引。所有同步都是单向的：Atlas 不会向源站写入。</p>
+
+            <div class="conn-tbl">
+              <div class="conn-row">
+                <div class="logo" style="background: #000;">RW</div>
+                <div class="name">Readwise<small>highlights · 2026-06-21 14:08 同步</small></div>
+                <span class="stat">412 条 · 18 待入库</span>
+                <span class="pill ok"><span class="dot"></span> 正常</span>
+                <button class="btn">管理</button>
+              </div>
+              <div class="conn-row">
+                <div class="logo" style="background: oklch(58% 0.15 250);">No</div>
+                <div class="name">Notion<small>3 工作区 · 每 15 分钟同步</small></div>
+                <span class="stat">412 页</span>
+                <span class="pill ok"><span class="dot"></span> 正常</span>
+                <button class="btn">管理</button>
+              </div>
+              <div class="conn-row">
+                <div class="logo" style="background: oklch(48% 0.04 250);">Br</div>
+                <div class="name">Atlas 浏览器扩展<small>Chrome · Arc · 12m 前</small></div>
+                <span class="stat">157 剪藏</span>
+                <span class="pill ok"><span class="dot"></span> 正常</span>
+                <button class="btn">管理</button>
+              </div>
+              <div class="conn-row">
+                <div class="logo" style="background: oklch(58% 0.18 50);">Ar</div>
+                <div class="name">Arc Boost<small>认证已过期 · 2026-06-18</small></div>
+                <span class="stat">—</span>
+                <span class="pill warn"><span class="dot"></span> 需重新授权</span>
+                <button class="btn primary">修复</button>
+              </div>
+              <div class="conn-row">
+                <div class="logo" style="background: oklch(54% 0.04 250);">+</div>
+                <div class="name">添加连接器<small>Obsidian、Logseq、Apple Notes、Pocket、Twitter/X、RSS…</small></div>
+                <span class="stat"></span>
+                <span class="muted-2 mono" style="font-size: 11px;">11 种可用</span>
+                <button class="btn">浏览</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Shortcuts -->
+          <section>
+            <h2>键盘快捷键</h2>
+            <p class="desc">所有快捷键都可以在这里改键。点击右侧组合键进入编辑。</p>
+            <table class="sc-tbl">
+              <tbody>
+                <tr><td>打开命令面板 / Ask Atlas</td><td><span class="kbd">⌘</span> <span class="kbd">K</span></td></tr>
+                <tr><td>快速捕捉</td><td><span class="kbd">⌘</span> <span class="kbd">⇧</span> <span class="kbd">N</span></td></tr>
+                <tr><td>在图谱中跳到当前笔记</td><td><span class="kbd">⌘</span> <span class="kbd">G</span></td></tr>
+                <tr><td>在 AI 助手中追问选中段</td><td><span class="kbd">⌘</span> <span class="kbd">L</span></td></tr>
+                <tr><td>切换 AI 侧栏</td><td><span class="kbd">⌘</span> <span class="kbd">/</span></td></tr>
+                <tr><td>导出当前对话为笔记</td><td><span class="kbd">⌘</span> <span class="kbd">⌥</span> <span class="kbd">E</span></td></tr>
+                <tr><td>切换空间</td><td><span class="kbd">⌃</span> <span class="kbd">1…9</span></td></tr>
+                <tr><td>暂停所有同步</td><td><span class="kbd">⌘</span> <span class="kbd">⇧</span> <span class="kbd">P</span></td></tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- Appearance -->
+          <section>
+            <h2>外观</h2>
+            <div class="row-set">
+              <div class="lbl">主题</div>
+              <div class="ctrl">
+                <div class="seg">
+                  <button class="on">浅色</button>
+                  <button>深色</button>
+                  <button>跟随系统</button>
+                </div>
+              </div>
+            </div>
+            <div class="row-set">
+              <div class="lbl">强调色</div>
+              <div class="ctrl">
+                <span style="width:22px;height:22px;border-radius:50%;background:oklch(56% 0.15 150);border:1.5px solid var(--fg);cursor:pointer;"></span>
+                <span style="width:22px;height:22px;border-radius:50%;background:oklch(55% 0.17 285);border:1px solid var(--border);cursor:pointer;"></span>
+                <span style="width:22px;height:22px;border-radius:50%;background:oklch(58% 0.18 28);border:1px solid var(--border);cursor:pointer;"></span>
+                <span style="width:22px;height:22px;border-radius:50%;background:oklch(64% 0.16 75);border:1px solid var(--border);cursor:pointer;"></span>
+                <span style="width:22px;height:22px;border-radius:50%;background:oklch(48% 0.10 220);border:1px solid var(--border);cursor:pointer;"></span>
+              </div>
+            </div>
+            <div class="row-set">
+              <div class="lbl">阅读字体</div>
+              <div class="ctrl">
+                <div class="seg">
+                  <button>系统 Sans</button>
+                  <button class="on">Source Serif</button>
+                  <button>IBM Plex Mono</button>
+                </div>
+              </div>
+            </div>
+            <div class="row-set">
+              <div class="lbl">侧栏密度</div>
+              <div class="ctrl">
+                <div class="seg">
+                  <button>紧凑</button>
+                  <button class="on">标准</button>
+                  <button>舒适</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Privacy -->
+          <section>
+            <h2>隐私与数据</h2>
+            <p class="desc">你的笔记原文始终保存在本地。仅在你触发提问时，相关片段才会作为上下文发往所选模型的提供商。</p>
+
+            <div class="row-set">
+              <div class="lbl">提问时发送的最大上下文片段长度</div>
+              <div class="ctrl">
+                <input class="text-in mono" value="3,200 tokens" />
+              </div>
+            </div>
+            <div class="row-set">
+              <div class="lbl">在提问前显示"将发送的内容"<small>看清楚再点发送</small></div>
+              <div class="ctrl"><span class="toggle on"></span></div>
+            </div>
+            <div class="row-set">
+              <div class="lbl">允许遥测<small>仅匿名性能与崩溃数据</small></div>
+              <div class="ctrl"><span class="toggle"></span><span class="muted" style="font-size:12.5px;">关</span></div>
+            </div>
+            <div class="row-set">
+              <div class="lbl">导出全部</div>
+              <div class="ctrl">
+                <button class="btn"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg> 导出 Markdown + 元数据</button>
+                <button class="btn"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg> 导出图谱 (GraphML)</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+  <script>
+    // Toggle clicks
+    document.querySelectorAll('.toggle').forEach(t => {
+      t.addEventListener('click', () => t.classList.toggle('on'));
+    });
+    document.querySelectorAll('.seg').forEach(s => {
+      s.querySelectorAll('button').forEach(b => {
+        b.addEventListener('click', () => {
+          s.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+          b.classList.add('on');
+        });
+      });
+    });
+    document.querySelectorAll('.model-card .m').forEach(m => {
+      m.addEventListener('click', () => {
+        document.querySelectorAll('.model-card .m').forEach(x => x.classList.remove('on'));
+        m.classList.add('on');
+      });
+    });
+  </script>
+</body>
+</html>

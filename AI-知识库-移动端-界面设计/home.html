@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas — 主界面</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;450;510;550;590&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Home-specific layout */
+    .home-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 20px;
+    }
+    @media (max-width: 1180px) { .home-grid { grid-template-columns: 1fr; } }
+
+    .hero-capture {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+    .hero-capture .row1 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+    }
+    .hero-capture textarea {
+      width: 100%;
+      min-height: 64px;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      resize: none;
+      font-size: 16px;
+      line-height: 1.55;
+      color: var(--fg);
+      letter-spacing: -0.005em;
+    }
+    .hero-capture textarea::placeholder { color: var(--muted-2); }
+    .hero-capture .row2 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      margin-top: 8px;
+    }
+    .hero-capture .src-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      font-size: 12px;
+      color: var(--fg-2);
+      border: 1px solid var(--border);
+    }
+    .hero-capture .src-pill .ico { width: 13px; height: 13px; color: var(--muted); }
+    .hero-capture .row2 .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+    .stat-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .stat-strip .cell {
+      padding: 14px 16px;
+      border-right: 1px solid var(--border);
+    }
+    .stat-strip .cell:last-child { border-right: 0; }
+    .stat-strip .lbl {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted-2);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .stat-strip .val {
+      font-family: var(--font-mono);
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--fg);
+      letter-spacing: -0.01em;
+    }
+    .stat-strip .delta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: 6px;
+    }
+    .stat-strip .delta.up { color: var(--accent); }
+    .stat-strip .spark { margin-top: 6px; height: 22px; }
+    @media (max-width: 720px) { .stat-strip { grid-template-columns: repeat(2, 1fr); } .stat-strip .cell:nth-child(2) { border-right: 0; } }
+
+    /* Recent list */
+    .recent {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .recent li {
+      display: grid;
+      grid-template-columns: 16px 1fr auto auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background .12s;
+    }
+    .recent li:hover { background: var(--surface-2); }
+    .recent li:last-child { border-bottom: 0; }
+    .recent .ico { width: 16px; height: 16px; color: var(--muted); }
+    .recent .meta { min-width: 0; }
+    .recent .title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .recent .title {
+      font-weight: 510;
+      color: var(--fg);
+      letter-spacing: -0.005em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 460px;
+    }
+    .recent .preview {
+      color: var(--muted);
+      font-size: 12.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .recent .tags { display: flex; gap: 4px; }
+    .recent .tag-chip {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--muted);
+      padding: 1px 6px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+    .recent .when {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--muted-2);
+    }
+
+    /* Right column */
+    .digest .item {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .digest .item:last-child { border-bottom: 0; }
+    .digest .item:hover { background: var(--surface-2); }
+    .digest .item .h {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .digest .item .h .n {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--muted-2);
+      letter-spacing: 0.06em;
+    }
+    .digest .item .h .title {
+      font-weight: 510;
+      color: var(--fg);
+      letter-spacing: -0.005em;
+    }
+    .digest .item p {
+      margin: 0;
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .digest .item .refs {
+      margin-top: 6px;
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .connectors .conn {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .connectors .conn:last-child { border-bottom: 0; }
+    .connectors .conn .logo {
+      width: 22px; height: 22px;
+      border-radius: 5px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: white;
+      font-family: var(--font-mono);
+    }
+    .connectors .conn .name { font-weight: 500; color: var(--fg); font-size: 13px; }
+    .connectors .conn .sub { font-family: var(--font-mono); font-size: 11px; color: var(--muted-2); }
+
+    /* Tags bar */
+    .tagbar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+    .tagbar .tg {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-size: 12.5px;
+      color: var(--fg-2);
+      cursor: pointer;
+      transition: border-color .12s;
+    }
+    .tagbar .tg:hover { border-color: var(--border-strong); }
+    .tagbar .tg.on {
+      background: var(--fg);
+      color: var(--surface);
+      border-color: var(--fg);
+    }
+    .tagbar .tg .num { font-family: var(--font-mono); font-size: 11px; opacity: .7; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- ===== Sidebar ===== -->
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 4 L26 10 V22 L16 28 L6 22 V10 Z"/>
+          <path d="M16 4 V16" />
+          <path d="M16 16 L26 10" />
+          <path d="M16 16 L6 10" />
+          <path d="M16 16 V28" />
+        </svg>
+        <b>Atlas</b>
+        <span class="ver">0.4.2</span>
+      </div>
+
+      <a class="nav active" href="home.html">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M5 10v10h14V10"/></svg>
+        主界面
+      </a>
+      <a class="nav" href="search.html">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        搜索
+        <span class="count">⌘K</span>
+      </a>
+      <a class="nav" href="graph.html">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="18" r="2.2"/><circle cx="18" cy="14" r="1.6"/><path d="M7.6 7.5 L11 16.4"/><path d="M16.6 7.7 L12.8 16.5"/><path d="M16.7 13 L13.5 17"/></svg>
+        知识图谱
+      </a>
+      <a class="nav" href="note.html">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7"/><path d="M9 16h7"/><path d="M9 8h4"/></svg>
+        所有笔记
+        <span class="count">1,284</span>
+      </a>
+
+      <div class="sect">收藏</div>
+      <div class="tag"><span class="dot" style="background: oklch(56% 0.15 150)"></span> Reading queue <span class="count">37</span></div>
+      <div class="tag"><span class="dot" style="background: oklch(64% 0.16 75)"></span> Active research <span class="count">12</span></div>
+      <div class="tag"><span class="dot" style="background: oklch(55% 0.17 285)"></span> Quotes <span class="count">208</span></div>
+
+      <div class="sect">标签</div>
+      <div class="tag"><span class="dot"></span> design-systems <span class="count">94</span></div>
+      <div class="tag"><span class="dot"></span> llm-agents <span class="count">71</span></div>
+      <div class="tag"><span class="dot"></span> rust <span class="count">48</span></div>
+      <div class="tag"><span class="dot"></span> economics <span class="count">31</span></div>
+      <div class="tag"><span class="dot"></span> housing <span class="count">23</span></div>
+
+      <a class="nav" href="settings.html" style="margin-top: 14px;">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.08a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.08a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 3.08V3a2 2 0 1 1 4 0v.08a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.08a1.7 1.7 0 0 0-1.56 1z"/></svg>
+        设置
+      </a>
+
+      <div class="footer">
+        <div class="avatar"></div>
+        <div class="who">Raymond Yu<small>local · sync ok</small></div>
+      </div>
+    </aside>
+
+    <!-- ===== Main ===== -->
+    <main class="main">
+      <div class="topbar">
+        <div class="crumbs"><b>atlas</b> <span class="sep">/</span> 主界面</div>
+        <button class="cmdk" type="button" aria-label="打开命令面板">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span class="label">询问 Atlas，或搜索 1,284 条笔记…</span>
+          <span class="kbd-set"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+        </button>
+        <button class="icon-btn" title="通知">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 5 3 8H3c0-3 3-1 3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+        </button>
+        <button class="icon-btn" title="新建">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        </button>
+      </div>
+
+      <div class="content">
+        <div class="page-h">
+          <div>
+            <h1>下午好，Raymond</h1>
+            <div class="sub">1,284 条笔记 · 上次同步 <span class="mono">2 分钟前</span> · 索引完整</div>
+          </div>
+          <div class="actions">
+            <button class="btn"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg> 继续上次</button>
+            <button class="btn primary"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg> 新建笔记</button>
+          </div>
+        </div>
+
+        <!-- Capture hero -->
+        <section class="hero-capture" aria-label="快速捕捉与提问">
+          <div class="row1">
+            <span class="pill ai"><span class="dot"></span> ASK ATLAS</span>
+            <span>问一个问题，或粘贴链接 / 选段直接收藏</span>
+          </div>
+          <textarea placeholder="例如：去年我读到关于 sparse autoencoders 可解释性的内容是什么？把它们汇总成一段……"></textarea>
+          <div class="row2">
+            <span class="src-pill">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0z"/><path d="M3 12h18"/><path d="M12 3a13 13 0 0 1 0 18 13 13 0 0 1 0-18z"/></svg>
+              全部知识库
+            </span>
+            <span class="src-pill">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 5l-7 7 7 7"/></svg>
+              最近 30 天
+            </span>
+            <span class="muted-2 mono" style="font-size: 11px; margin-left: 4px;">2 个限定条件</span>
+            <div class="right">
+              <span class="muted-2 mono" style="font-size: 11px;">claude-sonnet-4.6 · 2,810 tokens</span>
+              <button class="btn primary"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg> 询问</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Stat strip -->
+        <section class="stat-strip" aria-label="知识库状态">
+          <div class="cell">
+            <div class="lbl"><span class="pill ok"><span class="dot"></span> SYNC</span> 已索引</div>
+            <div class="val">1,284<span class="delta up">+12</span></div>
+            <svg class="spark" viewBox="0 0 120 22" preserveAspectRatio="none"><polyline fill="none" stroke="oklch(56% 0.15 150)" stroke-width="1.5" points="0,18 12,16 24,17 36,14 48,15 60,12 72,13 84,9 96,10 108,6 120,4"/></svg>
+          </div>
+          <div class="cell">
+            <div class="lbl">本周新增</div>
+            <div class="val">27<span class="delta">条</span></div>
+            <svg class="spark" viewBox="0 0 120 22" preserveAspectRatio="none"><g fill="var(--fg-2)">
+              <rect x="0"  y="14" width="12" height="6"/><rect x="14" y="10" width="12" height="10"/><rect x="28" y="6"  width="12" height="14"/><rect x="42" y="13" width="12" height="7"/>
+              <rect x="56" y="9"  width="12" height="11"/><rect x="70" y="4"  width="12" height="16"/><rect x="84" y="11" width="12" height="9"/><rect x="98" y="7"  width="12" height="13"/>
+            </g></svg>
+          </div>
+          <div class="cell">
+            <div class="lbl">AI 提问 · 30d</div>
+            <div class="val">142<span class="delta">次</span></div>
+            <div class="num muted" style="font-size: 11px; margin-top: 8px;">平均引用 <b style="color: var(--fg-2)">4.2</b> 条来源</div>
+          </div>
+          <div class="cell">
+            <div class="lbl">未整理</div>
+            <div class="val">19<span class="delta">条</span></div>
+            <div class="num muted" style="font-size: 11px; margin-top: 8px;">最早 <b style="color: var(--fg-2)">6 天前</b></div>
+          </div>
+        </section>
+
+        <!-- Tag filter row -->
+        <div class="tagbar" aria-label="筛选">
+          <button class="tg on">全部 <span class="num">1,284</span></button>
+          <button class="tg">design-systems <span class="num">94</span></button>
+          <button class="tg">llm-agents <span class="num">71</span></button>
+          <button class="tg">rust <span class="num">48</span></button>
+          <button class="tg">economics <span class="num">31</span></button>
+          <button class="tg">未读 <span class="num">37</span></button>
+        </div>
+
+        <div class="home-grid">
+          <!-- Recent -->
+          <section class="card">
+            <div class="head">
+              <h3>最近</h3>
+              <span class="pill"><span class="dot"></span> 31 条</span>
+              <span class="sub">按更新时间</span>
+            </div>
+            <ul class="recent">
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">Sparse autoencoders 的层级语义提取</span>
+                    <span class="pill ai" style="height:16px;font-size:9.5px;padding:0 6px;">已总结</span>
+                  </div>
+                  <div class="preview">Anthropic 的 monosemanticity 在更深层时出现了组合性特征……</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">llm-agents</span>
+                  <span class="tag-chip">papers</span>
+                </div>
+                <div class="when">2 分钟前</div>
+              </li>
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">Linear's 5-year retrospective — Karri Saarinen</span>
+                  </div>
+                  <div class="preview">linear.app · "We chose to be slow and deliberate, even when it cost us…"</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">design-systems</span>
+                  <span class="tag-chip">leadership</span>
+                </div>
+                <div class="when">38 分钟前</div>
+              </li>
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">关于深圳住房改革的笔记 — 2026 年 5 月</span>
+                  </div>
+                  <div class="preview">把保障房比例从 40% 提到 60% 的政策影响，与新加坡 HDB 模型的差异……</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">economics</span>
+                  <span class="tag-chip">housing</span>
+                </div>
+                <div class="when">3 小时前</div>
+              </li>
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">YouTube · "How container queries finally fix responsive design"</span>
+                    <span class="pill warn" style="height:16px;font-size:9.5px;padding:0 6px;">待索引</span>
+                  </div>
+                  <div class="preview">Una Kravets · 18:42 · 已生成转录稿，AI 摘要还在排队…</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">design-systems</span>
+                </div>
+                <div class="when">昨天</div>
+              </li>
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V6a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">与 Atlas 的对话 — "agentic memory 的三种架构"</span>
+                  </div>
+                  <div class="preview">引用了 5 条来源，最相关：MemGPT、Letta、Cognition 的 hierarchical recall……</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">llm-agents</span>
+                </div>
+                <div class="when">昨天</div>
+              </li>
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">Rust async/await 的取消语义 — 一份心智模型</span>
+                  </div>
+                  <div class="preview">drop = cancellation, JoinHandle 的语义差异，结构化并发为什么仍然在路上……</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">rust</span>
+                </div>
+                <div class="when">2 天前</div>
+              </li>
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M9 4h6v4H9z"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">FT — China's quiet stake in Latin America's lithium triangle</span>
+                  </div>
+                  <div class="preview">ft.com · 已剪藏 · "Beijing controls 60% of the world's processing capacity…"</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">economics</span>
+                  <span class="tag-chip">geopolitics</span>
+                </div>
+                <div class="when">2 天前</div>
+              </li>
+              <li>
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/></svg>
+                <div class="meta">
+                  <div class="title-row">
+                    <span class="title">什么样的 evals 才真正捕捉到产品价值</span>
+                  </div>
+                  <div class="preview">三个团队的对比：Anthropic、Cursor、Linear。Linear 用真实用户 session replay 做……</div>
+                </div>
+                <div class="tags">
+                  <span class="tag-chip">llm-agents</span>
+                  <span class="tag-chip">research</span>
+                </div>
+                <div class="when">3 天前</div>
+              </li>
+            </ul>
+          </section>
+
+          <!-- Right column -->
+          <div class="stack">
+            <section class="card digest">
+              <div class="head">
+                <h3>今日 Digest</h3>
+                <span class="pill ai"><span class="dot"></span> AI · 06-21 09:00</span>
+              </div>
+              <div class="item">
+                <div class="h"><span class="n">01</span><span class="title">三条关于 SAE 的新发现连成一条线</span></div>
+                <p>你过去 48 小时收藏的三篇文章 (Anthropic, Decode, Neel Nanda) 都在讨论 sparse autoencoders 在不同层级出现的语义涌现，可能是一篇综述的起点。</p>
+                <div class="refs">
+                  <span class="src"><span class="idx">1</span> sparse-autoencoders.md</span>
+                  <span class="src"><span class="idx">2</span> nanda-residual.md</span>
+                  <span class="src"><span class="idx">3</span> decode-paper.pdf</span>
+                </div>
+              </div>
+              <div class="item">
+                <div class="h"><span class="n">02</span><span class="title">"agentic memory" 已是你 30 天内的主轴</span></div>
+                <p>14 条笔记、6 次提问围绕同一主题。建议把它们合并到 Active research 集合，方便后续对话作为上下文。</p>
+              </div>
+              <div class="item">
+                <div class="h"><span class="n">03</span><span class="title">未整理：19 条</span></div>
+                <p>其中 11 条来自浏览器扩展，建议批量打标签或丢入 Reading queue。</p>
+              </div>
+            </section>
+
+            <section class="card connectors">
+              <div class="head">
+                <h3>连接器</h3>
+                <span class="sub">4 个已连接</span>
+              </div>
+              <div class="conn">
+                <div class="logo" style="background: #000;">RW</div>
+                <div>
+                  <div class="name">Readwise</div>
+                  <div class="sub">同步中 · 18 条待入库</div>
+                </div>
+                <span class="pill ok"><span class="dot"></span> OK</span>
+              </div>
+              <div class="conn">
+                <div class="logo" style="background: oklch(58% 0.15 250);">No</div>
+                <div>
+                  <div class="name">Notion</div>
+                  <div class="sub">3 个工作区 · 412 页</div>
+                </div>
+                <span class="pill ok"><span class="dot"></span> OK</span>
+              </div>
+              <div class="conn">
+                <div class="logo" style="background: oklch(48% 0.04 250);">Br</div>
+                <div>
+                  <div class="name">浏览器扩展</div>
+                  <div class="sub">Chrome · 上次 12m 前</div>
+                </div>
+                <span class="pill ok"><span class="dot"></span> OK</span>
+              </div>
+              <div class="conn">
+                <div class="logo" style="background: oklch(58% 0.18 50);">Ar</div>
+                <div>
+                  <div class="name">Arc Boost</div>
+                  <div class="sub">认证已过期</div>
+                </div>
+                <span class="pill warn"><span class="dot"></span> 需修复</span>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

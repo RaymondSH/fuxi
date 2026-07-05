@@ -66,6 +66,35 @@ export interface Note {
   keypoints: string[];
   original: string[];
   related_note_ids: string[];
+  revision?: number;
+  authority?: number;
+  can_edit?: boolean;
+  can_delete?: boolean;
+  space_id?: string;
+}
+
+export interface SearchHistoryItem {
+  id: string;
+  q: string;
+  mode: string;
+  hits: number;
+  created_at: string;
+}
+
+export interface QaHistoryItem {
+  id: string;
+  question: string;
+  answer_preview: string;
+  source_count: number;
+  created_at: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  mode: string;
+  took_ms: number;
+  total: number;
+  results: NoteSummary[];
 }
 
 export interface NoteSummary {

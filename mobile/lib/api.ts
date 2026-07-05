@@ -8,7 +8,7 @@
 
 import * as SecureStore from "expo-secure-store";
 
-const BASE = process.env.EXPO_PUBLIC_API_BASE || "http://118.25.93.30:19000/api";
+export const BASE = process.env.EXPO_PUBLIC_API_BASE || "http://118.25.93.30:19000/api";
 const ACCESS_KEY = "fuxi_access";
 const REFRESH_KEY = "fuxi_refresh";
 
@@ -154,6 +154,8 @@ async function handle<T>(res: Response, retry?: () => Promise<Response>): Promis
     if (res.status === 429) code = "rate_limited";
     throw new ApiError(code, message, res.status);
   }
+  // 204 No Content 无返回体（DELETE /notes/{id} 等用），返回 null
+  if (res.status === 204) return null as T;
   return res.json() as Promise<T>;
 }
 
@@ -179,6 +181,22 @@ export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  return handle<T>(await doFetch(), doFetch);
+}
+
+export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
+  const doFetch = () =>
+    fetch(`${BASE}${path}`, {
+      method: "PUT",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  return handle<T>(await doFetch(), doFetch);
+}
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  const doFetch = () =>
+    fetch(`${BASE}${path}`, { method: "DELETE", headers: authHeaders() });
   return handle<T>(await doFetch(), doFetch);
 }
 
